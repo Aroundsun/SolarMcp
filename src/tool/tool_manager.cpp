@@ -69,4 +69,12 @@ Result ToolManager::callTool(const std::string& name,
     }
 }
 
+// ---------------------------------------------------------------------------
+// clear
+// ---------------------------------------------------------------------------
+
+void ToolManager::clear() {
+    tools_.clear();
+}
+
 } // namespace mcp

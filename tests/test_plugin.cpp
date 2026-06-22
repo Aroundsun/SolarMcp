@@ -31,10 +31,15 @@ bool allPluginsAvailable() {
            fs::exists(fs::path(pluginDir()) / "read_file_plugin.so");
 }
 
-// PluginManager 须先于 ToolManager 声明，析构时先销毁 ToolManager（.so 仍加载）
+// PluginManager 须先于 ToolManager：析构时先销毁 Tool，再 dlclose .so
 struct PluginFixture {
     mcp::PluginManager pm;
     mcp::ToolManager tm;
+
+    void shutdown() {
+        tm.clear();
+        pm.unloadAll();
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -217,6 +222,28 @@ TEST(PluginManagerTest, ShellPluginReadsConfigPath) {
     EXPECT_NE(desc.find("15"), std::string::npos);
 
     fs::remove(cfg);
+    fs::remove_all(dir);
+}
+
+TEST(PluginManagerTest, SafeShutdownAfterLoad) {
+    if (!shellPluginAvailable()) {
+        GTEST_SKIP() << "shell_plugin.so not found in " << pluginDir();
+    }
+
+    const fs::path dir =
+        fs::temp_directory_path() / "solarmcp_plugin_shutdown";
+    fs::create_directories(dir);
+    fs::copy_file(fs::path(pluginDir()) / "shell_plugin.so",
+                  dir / "shell_plugin.so",
+                  fs::copy_options::overwrite_existing);
+
+    {
+        PluginFixture fx;
+        ASSERT_EQ(fx.pm.loadFromDirectory(dir.string(), fx.tm, ""), 1);
+        ASSERT_NE(fx.tm.getTool("shell"), nullptr);
+        fx.shutdown();
+    }
+
     fs::remove_all(dir);
 }
 

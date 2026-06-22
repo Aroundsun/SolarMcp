@@ -131,7 +131,8 @@ int main(int argc, char* argv[]) {
         static_cast<size_t>(worker_threads));
     LOG_INFO("Thread pool: {} workers", worker_threads);
 
-    // --- 5. 初始化工具管理器 ---
+    // PluginManager 须先于 ToolManager 声明：析构时先销毁 Tool，再 dlclose。
+    mcp::PluginManager plugin_manager;
     mcp::ToolManager tool_manager;
 
     // --- 6. 注册内置工具 ---
@@ -155,7 +156,6 @@ int main(int argc, char* argv[]) {
     }
 
     // --- 7. 加载插件 ---
-    mcp::PluginManager plugin_manager;
     std::string plugin_dir = config.getString("plugins.directory", "./plugins/");
     bool autoload = config.getBool("plugins.autoload", true);
 
@@ -228,6 +228,7 @@ int main(int argc, char* argv[]) {
     // --- 12. 优雅关闭 ---
     LOG_INFO("Shutting down...");
     server.stop();
+    tool_manager.clear();
     plugin_manager.unloadAll();
     thread_pool->shutdown();
     mcp::Logger::getInstance().shutdown();

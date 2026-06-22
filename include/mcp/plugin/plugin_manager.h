@@ -33,6 +33,8 @@ public:
                           const std::string& config_path = "");
 
     /// 卸载所有已加载插件并 dlclose 其句柄。
+    ///
+    /// 调用前须先 ToolManager::clear()，确保插件 Tool 在 .so 仍加载时析构。
     void unloadAll();
 
     /// 返回当前已加载插件数量。
