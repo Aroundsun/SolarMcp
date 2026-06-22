@@ -12,6 +12,7 @@ set(TEST_SOURCES
     test_read_file_tool.cpp
     test_plugin.cpp
     test_reactor.cpp
+    test_auth.cpp
 )
 
 foreach(test_src ${TEST_SOURCES})
