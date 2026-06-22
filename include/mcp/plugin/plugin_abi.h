@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define SOLARMCP_PLUGIN_ABI 1
+#define SOLARMCP_PLUGIN_ABI 2
 
 /** 插件 register/init 返回码 */
 #define MCP_PLUGIN_OK           0
@@ -45,11 +45,16 @@ typedef int (*mcp_tool_execute_fn)(const char* params_json,
  * 仅追加字段，不可重排；变更须 SOLARMCP_PLUGIN_ABI +1。
  */
 typedef struct mcp_host_api {
-    int abi_version;
-    void* host_ctx;
+    int abi_version; // 宿主 ABI 版本
+    void* host_ctx; // 宿主上下文
 
     /**
      * 注册工具。
+     * @param host_ctx 宿主上下文
+     * @param name 工具名称
+     * @param description 工具描述
+     * @param input_schema_json 工具输入参数 schema
+     * @param execute 工具执行回调
      * @return MCP_PLUGIN_OK 或 MCP_PLUGIN_ERR_DUP
      */
     int (*register_tool)(void* host_ctx,
@@ -58,10 +63,19 @@ typedef struct mcp_host_api {
                          const char* input_schema_json,
                          mcp_tool_execute_fn execute);
 
+    /**
+     * 写日志。
+     * @param host_ctx 宿主上下文
+     * @param level 日志级别
+     * @param message 日志消息
+     */
     void (*log)(void* host_ctx, int level, const char* message);
 
-    /** 返回 server config.yaml 路径，无则返回 "" */
-    const char* (*get_config_path)(void* host_ctx);
+    /**
+     * 返回本插件配置文件路径（由 Core 发现后传入），无则返回 ""。
+     * Core 不解析此文件内容，仅负责定位路径。
+     */
+    const char* (*get_plugin_config_path)(void* host_ctx);
 } mcp_host_api;
 
 /* ---- 插件必须导出 ---- */

@@ -15,10 +15,10 @@ struct PluginReloadResult {
 };
 
 /**
- * 动态插件加载器（纯 C ABI v1）。
+ * 动态插件加载器（纯 C ABI v2）。
  *
- * 插件须实现 plugin_abi.h 中导出符号，不得依赖主程序 C++ 类。
- * 加载时校验 SOLARMCP_PLUGIN_ABI，记录 mcp_plugin_version()。
+ * 扫描 plugins.directory 下各子目录中的 .so，发现并传递同目录插件配置路径。
+ * Core 不解析插件业务配置。
  */
 class PluginManager {
 public:
@@ -26,16 +26,13 @@ public:
     ~PluginManager();
 
     int loadFromDirectory(const std::string& plugin_dir,
-                          ToolManager& tool_manager,
-                          const std::string& config_path = "");
+                          ToolManager& tool_manager);
 
     PluginReloadResult reloadFromDirectory(const std::string& plugin_dir,
-                                           ToolManager& tool_manager,
-                                           const std::string& config_path = "");
+                                           ToolManager& tool_manager);
 
     bool reloadPlugin(const std::string& so_path,
-                      ToolManager& tool_manager,
-                      const std::string& config_path = "");
+                      ToolManager& tool_manager);
 
     void unloadAll(ToolManager& tool_manager);
 
@@ -51,12 +48,13 @@ private:
         std::vector<std::string> tool_names;
     };
 
-    bool loadPlugin(const std::string& so_path, ToolManager& tool_manager,
-                    const std::string& config_path);
+    bool loadPlugin(const std::string& so_path,
+                    ToolManager& tool_manager,
+                    const std::string& plugin_config_path);
 
     bool validatePlugin(const std::string& so_path,
                         ToolManager& trial_tool_manager,
-                        const std::string& config_path);
+                        const std::string& plugin_config_path);
 
     void unloadPlugin(LoadedPlugin& plugin, ToolManager& tool_manager);
     void unloadHandlesOnly();

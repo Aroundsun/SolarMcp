@@ -17,20 +17,54 @@ namespace fs = std::filesystem;
 #define SOLARMCP_PLUGIN_DIR "plugins"
 #endif
 
-std::string pluginDir() {
+fs::path pluginsRoot() {
     return SOLARMCP_PLUGIN_DIR;
 }
 
+fs::path shellSoPath() {
+    return pluginsRoot() / "shell" / "shell_plugin.so";
+}
+
+fs::path minimalSoPath() {
+    return pluginsRoot() / "example" / "minimal_plugin.so";
+}
+
+fs::path shellYamlPath() {
+    return pluginsRoot() / "shell" / "shell.yaml";
+}
+
 bool shellPluginAvailable() {
-    return fs::exists(fs::path(pluginDir()) / "shell_plugin.so");
+    return fs::exists(shellSoPath());
 }
 
 bool minimalPluginAvailable() {
-    return fs::exists(fs::path(pluginDir()) / "minimal_plugin.so");
+    return fs::exists(minimalSoPath());
 }
 
 bool allPluginsAvailable() {
     return shellPluginAvailable() && minimalPluginAvailable();
+}
+
+void copyShellBundle(const fs::path& dest_root,
+                     const std::string& yaml_content = "") {
+    const fs::path shell_dir = dest_root / "shell";
+    fs::create_directories(shell_dir);
+    fs::copy_file(shellSoPath(), shell_dir / "shell_plugin.so",
+                  fs::copy_options::overwrite_existing);
+    if (!yaml_content.empty()) {
+        std::ofstream out(shell_dir / "shell.yaml");
+        out << yaml_content;
+    } else if (fs::exists(shellYamlPath())) {
+        fs::copy_file(shellYamlPath(), shell_dir / "shell.yaml",
+                      fs::copy_options::overwrite_existing);
+    }
+}
+
+void copyMinimalBundle(const fs::path& dest_root) {
+    const fs::path example_dir = dest_root / "example";
+    fs::create_directories(example_dir);
+    fs::copy_file(minimalSoPath(), example_dir / "minimal_plugin.so",
+                  fs::copy_options::overwrite_existing);
 }
 
 struct PluginFixture {
@@ -74,38 +108,35 @@ TEST(PluginManagerTest, LoadedCountInitial) {
 }
 
 TEST(PluginManagerTest, IgnoresInvalidSharedLibrary) {
-    const fs::path dir =
+    const fs::path root =
         fs::temp_directory_path() / "solarmcp_plugin_invalid_test";
-    fs::create_directories(dir);
+    const fs::path bad_dir = root / "badplugin";
+    fs::create_directories(bad_dir);
 
     {
-        std::ofstream out(dir / "invalid_plugin.so");
+        std::ofstream out(bad_dir / "invalid_plugin.so");
         out << "not an ELF shared object";
     }
 
     PluginFixture fx;
-    int count = fx.pm.loadFromDirectory(dir.string(), fx.tm);
+    int count = fx.pm.loadFromDirectory(root.string(), fx.tm);
     EXPECT_EQ(count, 0);
     EXPECT_EQ(fx.pm.loadedCount(), 0u);
 
-    fs::remove_all(dir);
+    fs::remove_all(root);
 }
 
 TEST(PluginManagerTest, LoadShellPlugin) {
     if (!shellPluginAvailable()) {
-        GTEST_SKIP() << "shell_plugin.so not found in " << pluginDir();
+        GTEST_SKIP() << "shell_plugin.so not found under plugins/shell/";
     }
 
     PluginFixture fx;
-    const std::string shell_so = (fs::path(pluginDir()) / "shell_plugin.so").string();
-
-    const fs::path dir =
+    const fs::path root =
         fs::temp_directory_path() / "solarmcp_plugin_shell_only";
-    fs::create_directories(dir);
-    fs::copy_file(shell_so, dir / "shell_plugin.so",
-                  fs::copy_options::overwrite_existing);
+    copyShellBundle(root);
 
-    int count = fx.pm.loadFromDirectory(dir.string(), fx.tm, "");
+    int count = fx.pm.loadFromDirectory(root.string(), fx.tm);
     EXPECT_EQ(count, 1);
     EXPECT_EQ(fx.pm.loadedCount(), 1u);
 
@@ -119,24 +150,20 @@ TEST(PluginManagerTest, LoadShellPlugin) {
     EXPECT_NE(result.content["stdout"].get<std::string>().find("plugin_ok"),
               std::string::npos);
 
-    fs::remove_all(dir);
+    fs::remove_all(root);
 }
 
 TEST(PluginManagerTest, LoadMinimalPlugin) {
     if (!minimalPluginAvailable()) {
-        GTEST_SKIP() << "minimal_plugin.so not found in " << pluginDir();
+        GTEST_SKIP() << "minimal_plugin.so not found under plugins/example/";
     }
 
     PluginFixture fx;
-    const std::string so = (fs::path(pluginDir()) / "minimal_plugin.so").string();
-
-    const fs::path dir =
+    const fs::path root =
         fs::temp_directory_path() / "solarmcp_plugin_minimal_only";
-    fs::create_directories(dir);
-    fs::copy_file(so, dir / "minimal_plugin.so",
-                  fs::copy_options::overwrite_existing);
+    copyMinimalBundle(root);
 
-    EXPECT_EQ(fx.pm.loadFromDirectory(dir.string(), fx.tm, ""), 1);
+    EXPECT_EQ(fx.pm.loadFromDirectory(root.string(), fx.tm), 1);
     ASSERT_NE(fx.tm.getTool("plugin_demo"), nullptr);
 
     mcp::Context ctx;
@@ -144,16 +171,16 @@ TEST(PluginManagerTest, LoadMinimalPlugin) {
     ASSERT_FALSE(result.is_error);
     EXPECT_EQ(result.content["message"], "hello from minimal plugin");
 
-    fs::remove_all(dir);
+    fs::remove_all(root);
 }
 
 TEST(PluginManagerTest, LoadAllPluginsFromDirectory) {
     if (!allPluginsAvailable()) {
-        GTEST_SKIP() << "plugin .so files not found in " << pluginDir();
+        GTEST_SKIP() << "plugin bundles not found under plugins/";
     }
 
     PluginFixture fx;
-    int count = fx.pm.loadFromDirectory(pluginDir(), fx.tm, "");
+    int count = fx.pm.loadFromDirectory(pluginsRoot().string(), fx.tm);
     EXPECT_EQ(count, 2);
     EXPECT_EQ(fx.pm.loadedCount(), 2u);
     EXPECT_GE(fx.tm.size(), 2u);
@@ -163,13 +190,13 @@ TEST(PluginManagerTest, LoadAllPluginsFromDirectory) {
 
 TEST(PluginManagerTest, MinimalPluginAlongsideBuiltinReadFile) {
     if (!allPluginsAvailable()) {
-        GTEST_SKIP() << "plugin .so files not found in " << pluginDir();
+        GTEST_SKIP() << "plugin bundles not found under plugins/";
     }
 
     PluginFixture fx;
     ASSERT_TRUE(fx.tm.registerTool(std::make_unique<mcp::ReadFileTool>()));
 
-    int count = fx.pm.loadFromDirectory(pluginDir(), fx.tm, "");
+    int count = fx.pm.loadFromDirectory(pluginsRoot().string(), fx.tm);
     EXPECT_EQ(count, 2);
     EXPECT_NE(fx.tm.getTool("shell"), nullptr);
     EXPECT_NE(fx.tm.getTool("plugin_demo"), nullptr);
@@ -177,56 +204,39 @@ TEST(PluginManagerTest, MinimalPluginAlongsideBuiltinReadFile) {
     EXPECT_EQ(fx.tm.size(), 3u);
 }
 
-TEST(PluginManagerTest, ShellDisabledViaConfig) {
+TEST(PluginManagerTest, ShellDisabledViaPluginConfig) {
     if (!shellPluginAvailable()) {
-        GTEST_SKIP() << "shell_plugin.so not found in " << pluginDir();
+        GTEST_SKIP() << "shell_plugin.so not found under plugins/shell/";
     }
 
-    const fs::path cfg =
-        fs::temp_directory_path() / "solarmcp_shell_disabled.yaml";
-    {
-        std::ofstream out(cfg);
-        out << "tools:\n  shell:\n    enabled: false\n";
-    }
-
-    const fs::path dir =
+    const fs::path root =
         fs::temp_directory_path() / "solarmcp_plugin_shell_cfg";
-    fs::create_directories(dir);
-    fs::copy_file(fs::path(pluginDir()) / "shell_plugin.so",
-                  dir / "shell_plugin.so",
-                  fs::copy_options::overwrite_existing);
+    copyShellBundle(root, "enabled: false\n");
 
     PluginFixture fx;
-    int count = fx.pm.loadFromDirectory(dir.string(), fx.tm, cfg.string());
+    int count = fx.pm.loadFromDirectory(root.string(), fx.tm);
     EXPECT_EQ(count, 1);
     EXPECT_EQ(fx.pm.loadedCount(), 1u);
     EXPECT_EQ(fx.tm.getTool("shell"), nullptr);
 
-    fs::remove(cfg);
-    fs::remove_all(dir);
+    fs::remove_all(root);
 }
 
-TEST(PluginManagerTest, ShellPluginReadsConfigPath) {
+TEST(PluginManagerTest, ShellPluginReadsPluginYaml) {
     if (!shellPluginAvailable()) {
-        GTEST_SKIP() << "shell_plugin.so not found in " << pluginDir();
+        GTEST_SKIP() << "shell_plugin.so not found under plugins/shell/";
     }
 
-    const fs::path cfg =
-        fs::temp_directory_path() / "solarmcp_shell_timeout.yaml";
-    {
-        std::ofstream out(cfg);
-        out << "tools:\n  shell:\n    enabled: true\n    timeout_sec: 15\n";
-    }
-
-    const fs::path dir =
+    const fs::path root =
         fs::temp_directory_path() / "solarmcp_plugin_shell_timeout";
-    fs::create_directories(dir);
-    fs::copy_file(fs::path(pluginDir()) / "shell_plugin.so",
-                  dir / "shell_plugin.so",
-                  fs::copy_options::overwrite_existing);
+    copyShellBundle(root,
+        "enabled: true\n"
+        "timeout_sec: 15\n"
+        "max_output_mb: 10\n"
+        "allowed_shells: [\"/bin/sh\"]\n");
 
     PluginFixture fx;
-    ASSERT_EQ(fx.pm.loadFromDirectory(dir.string(), fx.tm, cfg.string()), 1);
+    ASSERT_EQ(fx.pm.loadFromDirectory(root.string(), fx.tm), 1);
 
     auto* shell = fx.tm.getTool("shell");
     ASSERT_NE(shell, nullptr);
@@ -235,51 +245,44 @@ TEST(PluginManagerTest, ShellPluginReadsConfigPath) {
         schema["properties"]["timeout_seconds"]["description"].get<std::string>();
     EXPECT_NE(desc.find("15"), std::string::npos);
 
-    fs::remove(cfg);
-    fs::remove_all(dir);
+    fs::remove_all(root);
 }
 
 TEST(PluginManagerTest, SafeShutdownAfterLoad) {
     if (!shellPluginAvailable()) {
-        GTEST_SKIP() << "shell_plugin.so not found in " << pluginDir();
+        GTEST_SKIP() << "shell_plugin.so not found under plugins/shell/";
     }
 
-    const fs::path dir =
+    const fs::path root =
         fs::temp_directory_path() / "solarmcp_plugin_shutdown";
-    fs::create_directories(dir);
-    fs::copy_file(fs::path(pluginDir()) / "shell_plugin.so",
-                  dir / "shell_plugin.so",
-                  fs::copy_options::overwrite_existing);
+    copyShellBundle(root);
 
     {
         PluginFixture fx;
-        ASSERT_EQ(fx.pm.loadFromDirectory(dir.string(), fx.tm, ""), 1);
+        ASSERT_EQ(fx.pm.loadFromDirectory(root.string(), fx.tm), 1);
         ASSERT_NE(fx.tm.getTool("shell"), nullptr);
         fx.shutdown();
     }
 
-    fs::remove_all(dir);
+    fs::remove_all(root);
 }
 
 TEST(PluginManagerTest, ReloadFromDirectory) {
     if (!shellPluginAvailable()) {
-        GTEST_SKIP() << "shell_plugin.so not found in " << pluginDir();
+        GTEST_SKIP() << "shell_plugin.so not found under plugins/shell/";
     }
 
-    const fs::path dir =
+    const fs::path root =
         fs::temp_directory_path() / "solarmcp_plugin_reload";
-    fs::create_directories(dir);
-    fs::copy_file(fs::path(pluginDir()) / "shell_plugin.so",
-                  dir / "shell_plugin.so",
-                  fs::copy_options::overwrite_existing);
+    copyShellBundle(root);
 
     PluginFixture fx;
     ASSERT_TRUE(fx.tm.registerTool(std::make_unique<mcp::ReadFileTool>()));
-    ASSERT_EQ(fx.pm.loadFromDirectory(dir.string(), fx.tm, ""), 1);
+    ASSERT_EQ(fx.pm.loadFromDirectory(root.string(), fx.tm), 1);
     ASSERT_NE(fx.tm.getTool("shell"), nullptr);
     EXPECT_EQ(fx.tm.size(), 2u);
 
-    auto result = fx.pm.reloadFromDirectory(dir.string(), fx.tm, "");
+    auto result = fx.pm.reloadFromDirectory(root.string(), fx.tm);
     EXPECT_EQ(result.unloaded, 1);
     EXPECT_EQ(result.loaded, 1);
     EXPECT_EQ(fx.pm.loadedCount(), 1u);
@@ -293,30 +296,28 @@ TEST(PluginManagerTest, ReloadFromDirectory) {
     EXPECT_NE(call.content["stdout"].get<std::string>().find("reloaded"),
               std::string::npos);
 
-    fs::remove_all(dir);
+    fs::remove_all(root);
 }
 
 TEST(PluginManagerTest, ReloadSinglePlugin) {
     if (!shellPluginAvailable()) {
-        GTEST_SKIP() << "shell_plugin.so not found in " << pluginDir();
+        GTEST_SKIP() << "shell_plugin.so not found under plugins/shell/";
     }
 
-    const fs::path dir =
+    const fs::path root =
         fs::temp_directory_path() / "solarmcp_plugin_single_reload";
-    fs::create_directories(dir);
-    const std::string shell_so = (dir / "shell_plugin.so").string();
-    fs::copy_file(fs::path(pluginDir()) / "shell_plugin.so", shell_so,
-                  fs::copy_options::overwrite_existing);
+    copyShellBundle(root);
+    const std::string shell_so = (root / "shell" / "shell_plugin.so").string();
 
     PluginFixture fx;
-    ASSERT_TRUE(fx.pm.reloadPlugin(shell_so, fx.tm, ""));
+    ASSERT_TRUE(fx.pm.reloadPlugin(shell_so, fx.tm));
     ASSERT_NE(fx.tm.getTool("shell"), nullptr);
 
-    ASSERT_TRUE(fx.pm.reloadPlugin(shell_so, fx.tm, ""));
+    ASSERT_TRUE(fx.pm.reloadPlugin(shell_so, fx.tm));
     ASSERT_NE(fx.tm.getTool("shell"), nullptr);
     EXPECT_EQ(fx.pm.loadedCount(), 1u);
 
-    fs::remove_all(dir);
+    fs::remove_all(root);
 }
 
 TEST(PluginManagerTest, UnregisterToolOnly) {

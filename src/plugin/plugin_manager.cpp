@@ -11,12 +11,15 @@
 #include <cstring>
 #include <dirent.h>
 #include <dlfcn.h>
+#include <filesystem>
 #include <string>
 #include <vector>
 
 namespace mcp {
 
 namespace {
+
+namespace fs = std::filesystem;
 
 const char* dlErrorString() {
     const char* err = ::dlerror();
@@ -32,8 +35,13 @@ bool isPluginSoFile(const std::string& name) {
 
 struct HostState {
     ToolManager* tool_manager = nullptr;
-    std::string config_path;
+    std::string plugin_config_path;
     std::vector<std::string>* pending_tools = nullptr;
+};
+
+struct ScannedPlugin {
+    std::string so_path;
+    std::string config_path;
 };
 
 int hostRegisterTool(void* host_ctx,
@@ -74,9 +82,9 @@ void hostLog(void* /*host_ctx*/, int level, const char* message) {
     }
 }
 
-const char* hostGetConfigPath(void* host_ctx) {
+const char* hostGetPluginConfigPath(void* host_ctx) {
     auto* state = static_cast<HostState*>(host_ctx);
-    return state ? state->config_path.c_str() : "";
+    return state ? state->plugin_config_path.c_str() : "";
 }
 
 mcp_host_api makeHostApi(HostState* state) {
@@ -85,7 +93,7 @@ mcp_host_api makeHostApi(HostState* state) {
     api.host_ctx = state;
     api.register_tool = hostRegisterTool;
     api.log = hostLog;
-    api.get_config_path = hostGetConfigPath;
+    api.get_plugin_config_path = hostGetPluginConfigPath;
     return api;
 }
 
@@ -167,8 +175,14 @@ bool activatePlugin(PluginSymbols& sym,
     out_name = (pname && *pname) ? pname : so_path;
     out_abi = abi;
 
-    LOG_INFO("Plugin '{}': abi={}, version={}, name={}",
-             so_path, abi, out_version, out_name);
+    if (!host_state.plugin_config_path.empty()) {
+        LOG_INFO("Plugin '{}': abi={}, version={}, name={}, config={}",
+                 so_path, abi, out_version, out_name,
+                 host_state.plugin_config_path);
+    } else {
+        LOG_INFO("Plugin '{}': abi={}, version={}, name={} (no config file)",
+                 so_path, abi, out_version, out_name);
+    }
 
     host_state.pending_tools = &out_tool_names;
     mcp_host_api api = makeHostApi(&host_state);
@@ -190,24 +204,74 @@ bool activatePlugin(PluginSymbols& sym,
     return true;
 }
 
-std::vector<std::string> scanPluginPaths(const std::string& plugin_dir) {
-    std::vector<std::string> paths;
-    DIR* dir = ::opendir(plugin_dir.c_str());
-    if (!dir) return paths;
-
-    struct dirent* entry;
-    while ((entry = ::readdir(dir)) != nullptr) {
-        const std::string name = entry->d_name;
-        if (!isPluginSoFile(name)) continue;
-
-        std::string full_path = plugin_dir;
-        if (full_path.back() != '/') full_path += '/';
-        full_path += name;
-        paths.push_back(std::move(full_path));
+std::string resolvePluginConfigPath(const fs::path& plugin_subdir,
+                                    const std::string& so_filename) {
+    const std::string dir_name = plugin_subdir.filename().string();
+    std::string so_base = so_filename;
+    if (so_base.size() > 3 &&
+        so_base.compare(so_base.size() - 3, 3, ".so") == 0) {
+        so_base.resize(so_base.size() - 3);
     }
-    ::closedir(dir);
-    std::sort(paths.begin(), paths.end());
-    return paths;
+
+    const fs::path candidates[] = {
+        plugin_subdir / "plugin.yaml",
+        plugin_subdir / (dir_name + ".yaml"),
+        plugin_subdir / (so_base + ".yaml"),
+    };
+
+    for (const auto& candidate : candidates) {
+        if (fs::is_regular_file(candidate)) {
+            return candidate.string();
+        }
+    }
+    return "";
+}
+
+std::string resolveConfigForSoPath(const std::string& so_path) {
+    fs::path so = so_path;
+    return resolvePluginConfigPath(so.parent_path(), so.filename().string());
+}
+
+std::vector<ScannedPlugin> scanPluginEntries(const std::string& plugin_root) {
+    std::vector<ScannedPlugin> entries;
+    fs::path root(plugin_root);
+
+    std::error_code ec;
+    if (!fs::is_directory(root, ec)) {
+        return entries;
+    }
+
+    for (const auto& entry : fs::directory_iterator(root, ec)) {
+        if (ec || !entry.is_directory()) {
+            continue;
+        }
+
+        const std::string dir_name = entry.path().filename().string();
+        if (dir_name.empty() || dir_name[0] == '.') {
+            continue;
+        }
+
+        for (const auto& file : fs::directory_iterator(entry.path(), ec)) {
+            if (ec || !file.is_regular_file()) {
+                continue;
+            }
+            const std::string fname = file.path().filename().string();
+            if (!isPluginSoFile(fname)) {
+                continue;
+            }
+
+            ScannedPlugin item;
+            item.so_path = file.path().string();
+            item.config_path = resolvePluginConfigPath(entry.path(), fname);
+            entries.push_back(std::move(item));
+        }
+    }
+
+    std::sort(entries.begin(), entries.end(),
+              [](const ScannedPlugin& a, const ScannedPlugin& b) {
+                  return a.so_path < b.so_path;
+              });
+    return entries;
 }
 
 } // namespace
@@ -222,20 +286,17 @@ PluginManager::~PluginManager() {
 }
 
 int PluginManager::loadFromDirectory(const std::string& plugin_dir,
-                                      ToolManager& tool_manager,
-                                      const std::string& config_path) {
-    DIR* dir = ::opendir(plugin_dir.c_str());
-    if (!dir) {
+                                      ToolManager& tool_manager) {
+    if (!fs::is_directory(fs::path(plugin_dir))) {
         LOG_WARN("Cannot open plugin directory '{}': {}",
                  plugin_dir, std::strerror(errno));
         return 0;
     }
-    ::closedir(dir);
 
     int count = 0;
     int failed = 0;
-    for (const auto& path : scanPluginPaths(plugin_dir)) {
-        if (loadPlugin(path, tool_manager, config_path)) {
+    for (const auto& entry : scanPluginEntries(plugin_dir)) {
+        if (loadPlugin(entry.so_path, tool_manager, entry.config_path)) {
             ++count;
         } else {
             ++failed;
@@ -251,30 +312,31 @@ int PluginManager::loadFromDirectory(const std::string& plugin_dir,
 
 PluginReloadResult PluginManager::reloadFromDirectory(
     const std::string& plugin_dir,
-    ToolManager& tool_manager,
-    const std::string& config_path) {
+    ToolManager& tool_manager) {
     PluginReloadResult result;
     result.unloaded = static_cast<int>(plugins_.size());
 
-    auto paths = scanPluginPaths(plugin_dir);
+    auto entries = scanPluginEntries(plugin_dir);
     ToolManager trial_tm;
-    for (const auto& path : paths) {
-        if (!validatePlugin(path, trial_tm, config_path)) {
-            LOG_WARN("Plugin reload aborted: validation failed for '{}'", path);
+    for (const auto& entry : entries) {
+        if (!validatePlugin(entry.so_path, trial_tm, entry.config_path)) {
+            LOG_WARN("Plugin reload aborted: validation failed for '{}'",
+                     entry.so_path);
             for (const auto& name : trial_tm.listTools()) {
                 trial_tm.unregisterTool(name.name);
             }
-            result.failed = static_cast<int>(paths.size());
+            result.failed = static_cast<int>(entries.size());
             return result;
         }
         trial_tm.clear();
     }
 
-    LOG_INFO("Reloading plugins from '{}' ({} validated)", plugin_dir, paths.size());
+    LOG_INFO("Reloading plugins from '{}' ({} validated)", plugin_dir,
+             entries.size());
     unloadAll(tool_manager);
 
-    for (const auto& path : paths) {
-        if (loadPlugin(path, tool_manager, config_path)) {
+    for (const auto& entry : entries) {
+        if (loadPlugin(entry.so_path, tool_manager, entry.config_path)) {
             ++result.loaded;
         } else {
             ++result.failed;
@@ -287,8 +349,9 @@ PluginReloadResult PluginManager::reloadFromDirectory(
 }
 
 bool PluginManager::reloadPlugin(const std::string& so_path,
-                                  ToolManager& tool_manager,
-                                  const std::string& config_path) {
+                                  ToolManager& tool_manager) {
+    const std::string config_path = resolveConfigForSoPath(so_path);
+
     ToolManager trial_tm;
     if (!validatePlugin(so_path, trial_tm, config_path)) {
         LOG_WARN("Plugin reload rejected: '{}' failed ABI validation", so_path);
@@ -359,7 +422,7 @@ void PluginManager::unloadHandlesOnly() {
 
 bool PluginManager::validatePlugin(const std::string& so_path,
                                     ToolManager& trial_tool_manager,
-                                    const std::string& config_path) {
+                                    const std::string& plugin_config_path) {
     ::dlerror();
     void* handle = ::dlopen(so_path.c_str(), RTLD_NOW);
     if (!handle) {
@@ -378,7 +441,7 @@ bool PluginManager::validatePlugin(const std::string& so_path,
 
     HostState host_state;
     host_state.tool_manager = &trial_tool_manager;
-    host_state.config_path = config_path;
+    host_state.plugin_config_path = plugin_config_path;
 
     std::vector<std::string> tool_names;
     std::string name;
@@ -397,7 +460,7 @@ bool PluginManager::validatePlugin(const std::string& so_path,
 
 bool PluginManager::loadPlugin(const std::string& so_path,
                                 ToolManager& tool_manager,
-                                const std::string& config_path) {
+                                const std::string& plugin_config_path) {
     for (const auto& plugin : plugins_) {
         if (plugin.path == so_path) {
             LOG_WARN("Plugin already loaded, skip: {}", so_path);
@@ -422,7 +485,7 @@ bool PluginManager::loadPlugin(const std::string& so_path,
 
     HostState host_state;
     host_state.tool_manager = &tool_manager;
-    host_state.config_path = config_path;
+    host_state.plugin_config_path = plugin_config_path;
 
     LoadedPlugin plugin;
     plugin.handle = handle;

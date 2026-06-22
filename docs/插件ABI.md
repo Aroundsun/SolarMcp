@@ -28,13 +28,13 @@ dlopen(.so)
 
 - `register_tool` — 注册 MCP 工具（execute 为 C 回调）
 - `log` — 写服务器日志
-- `get_config_path` — 返回 `config.yaml` 路径
+- `get_plugin_config_path` — 返回**本插件**配置文件路径（Core 发现，插件自行解析）
 
 ## 插件必须导出的符号
 
 | 符号 | 说明 |
 |------|------|
-| `mcp_plugin_abi_version` | 返回 `SOLARMCP_PLUGIN_ABI`（当前为 **1**） |
+| `mcp_plugin_abi_version` | 返回 `SOLARMCP_PLUGIN_ABI`（当前为 **2**） |
 | `mcp_plugin_version` | 语义版本字符串，如 `"2.0.0"` |
 | `mcp_plugin_name` | 逻辑名，如 `"shell_plugin"` |
 | `mcp_plugin_init` | 接收 `mcp_host_api*`，保存供 register 使用 |
@@ -58,7 +58,9 @@ typedef int (*mcp_tool_execute_fn)(const char* params_json,
 2. 参考 `plugins/example/minimal_plugin.c`（纯 C 最小示例）
 3. 复杂逻辑可在同 `.so` 内用 C++ 实现，通过 C 回调桥接（见 `plugins/shell/shell_plugin.cpp`）
 4. 在 `plugins/CMakeLists.txt` 添加 `add_library(... MODULE ...)`
-5. 构建后 `.so` 输出到 `plugins/lib/`
+5. 构建后 `.so` 与 `*.yaml` 置于 `plugins/{name}/` 子目录
+
+配置管理见 [配置管理.md](./配置管理.md)。
 
 **不要**：
 

@@ -1,5 +1,5 @@
-# SolarMcp 服务器配置
-# 默认值 — 可通过命令行覆盖：--config <path>
+# SolarMcp 服务器配置（Core 仅框架 + 内置工具）
+# 插件业务配置见 plugins/{name}/*.yaml
 
 server:
   host: "0.0.0.0"
@@ -17,7 +17,7 @@ thread_pool:
   max_queue_size: 10000
 
 plugins:
-  directory: "./plugins/lib/"   # 运行时 .so（见 docs/插件ABI.md）
+  directory: "./plugins/"       # 扫描子目录，每目录一个 .so + 可选 yaml
   autoload: true
   allow_reload: true            # 允许运行时 plugins/reload 热重载
 
@@ -26,14 +26,6 @@ tools:
     enabled: true
     max_size_mb: 10
     allowed_paths: ["/tmp", "/home"]
-
-  # Shell 命令执行（插件 shell_plugin 读取此配置）
-  # 警告：等同于远程 shell，务必开启 auth 并仅在受信环境使用
-  shell:
-    enabled: true
-    timeout_sec: 30
-    max_output_mb: 10
-    allowed_shells: ["/bin/sh", "/bin/bash"]
 
 auth:
   enabled: true

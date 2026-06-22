@@ -31,24 +31,20 @@ ShellPluginConfig loadShellConfig(const char* config_path) {
 
     try {
         YAML::Node root = YAML::LoadFile(config_path);
-        YAML::Node shell = root["tools"]["shell"];
-        if (!shell || !shell.IsMap()) {
-            return cfg;
-        }
 
-        if (shell["enabled"]) {
-            cfg.enabled = shell["enabled"].as<bool>();
+        if (root["enabled"]) {
+            cfg.enabled = root["enabled"].as<bool>();
         }
-        if (shell["timeout_sec"]) {
-            cfg.timeout_sec = shell["timeout_sec"].as<int>();
+        if (root["timeout_sec"]) {
+            cfg.timeout_sec = root["timeout_sec"].as<int>();
         }
-        if (shell["max_output_mb"]) {
+        if (root["max_output_mb"]) {
             cfg.max_output_bytes =
-                static_cast<size_t>(shell["max_output_mb"].as<int>()) * 1024 * 1024;
+                static_cast<size_t>(root["max_output_mb"].as<int>()) * 1024 * 1024;
         }
-        if (shell["allowed_shells"] && shell["allowed_shells"].IsSequence()) {
+        if (root["allowed_shells"] && root["allowed_shells"].IsSequence()) {
             cfg.allowed_shells.clear();
-            for (const auto& item : shell["allowed_shells"]) {
+            for (const auto& item : root["allowed_shells"]) {
                 cfg.allowed_shells.push_back(item.as<std::string>());
             }
         }
@@ -124,9 +120,10 @@ int mcp_plugin_register(void) {
         return MCP_PLUGIN_ERR_HOST;
     }
 
-    const char* config_path = g_host->get_config_path
-        ? g_host->get_config_path(g_host->host_ctx)
-        : "";
+    const char* config_path =
+        g_host->get_plugin_config_path
+            ? g_host->get_plugin_config_path(g_host->host_ctx)
+            : "";
 
     ShellPluginConfig cfg = loadShellConfig(config_path);
     if (!cfg.enabled) {

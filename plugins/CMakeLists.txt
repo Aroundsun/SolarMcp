@@ -1,5 +1,7 @@
-# 为插件添加共享库
-set(PLUGIN_LIB_DIR ${CMAKE_SOURCE_DIR}/plugins/lib)
+# 为插件添加共享库（一插件一子目录：plugins/{name}/*.so + *.yaml）
+
+set(SHELL_PLUGIN_DIR ${CMAKE_SOURCE_DIR}/plugins/shell)
+set(EXAMPLE_PLUGIN_DIR ${CMAKE_SOURCE_DIR}/plugins/example)
 
 # 最小示例插件（纯 C ABI）
 add_library(minimal_plugin MODULE
@@ -11,7 +13,7 @@ target_include_directories(minimal_plugin PRIVATE
 set_target_properties(minimal_plugin PROPERTIES
     PREFIX ""
     SUFFIX ".so"
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins/lib
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins/example
     C_STANDARD 11
 )
 
@@ -32,15 +34,19 @@ target_link_libraries(shell_plugin PRIVATE
 set_target_properties(shell_plugin PROPERTIES
     PREFIX ""
     SUFFIX ".so"
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins/lib
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins/shell
 )
 
-foreach(_plugin minimal_plugin shell_plugin)
-    add_custom_command(TARGET ${_plugin} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${PLUGIN_LIB_DIR}
-        COMMAND ${CMAKE_COMMAND} -E copy
-            $<TARGET_FILE:${_plugin}>
-            ${PLUGIN_LIB_DIR}/
-        COMMENT "Copying ${_plugin} to plugins/lib/"
-    )
-endforeach()
+add_custom_command(TARGET minimal_plugin POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        $<TARGET_FILE:minimal_plugin>
+        ${EXAMPLE_PLUGIN_DIR}/
+    COMMENT "Copying minimal_plugin to plugins/example/"
+)
+
+add_custom_command(TARGET shell_plugin POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        $<TARGET_FILE:shell_plugin>
+        ${SHELL_PLUGIN_DIR}/
+    COMMENT "Copying shell_plugin to plugins/shell/"
+)

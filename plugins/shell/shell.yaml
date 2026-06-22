@@ -1,0 +1,7 @@
+# Shell 插件独立配置（Core 不解析此文件）
+# 警告：等同于远程 shell，务必开启 auth 并仅在受信环境使用
+
+enabled: true
+timeout_sec: 30
+max_output_mb: 10
+allowed_shells: ["/bin/sh", "/bin/bash"]

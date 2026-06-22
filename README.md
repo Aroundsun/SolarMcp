@@ -58,7 +58,7 @@ python3 scripts/client_test.py --shell-command "uname -a"
 python3 scripts/client_test.py --skip-shell   # 仅测 read_file
 ```
 
-`shell` 工具由 `plugins/lib/shell_plugin.so` 提供（编译后自动生成）。调用示例：
+`shell` 工具由 `plugins/shell/shell_plugin.so` 提供（配置见 `plugins/shell/shell.yaml`）。调用示例：
 
 ```bash
 # tools/call 参数示例
@@ -94,7 +94,7 @@ logging:
   file: "./logs/solarmcp.log"
 
 plugins:
-  directory: "./plugins/lib/"   # 动态库目录（源码在 plugins/ 各子目录）
+  directory: "./plugins/"       # 扫描子目录（每目录 .so + yaml）
   autoload: true
   allow_reload: true            # 允许 plugins/reload 热重载
 
@@ -103,12 +103,6 @@ tools:
     enabled: true
     max_size_mb: 10
     allowed_paths: ["/tmp", "/home"]
-
-  shell:
-    enabled: true
-    timeout_sec: 30
-    max_output_mb: 10
-    allowed_shells: ["/bin/sh", "/bin/bash"]
 ```
 
 ## 项目结构
@@ -134,6 +128,7 @@ SolarMcp/
 │   ├── shell/        #   shell 插件源码
 │   └── lib/          #   运行时 .so（构建生成）
 ├── docs/             # 文档
+│   ├── 配置管理.md       # Core / Plugin 配置分离规范
 │   ├── 插件ABI.md        # 纯 C 插件 ABI 设计与编写
 │   ├── 插件热重载.md     # 运行时热重载指南
 │   └── 系统设计.md       # 架构与任务分解

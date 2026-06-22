@@ -61,8 +61,8 @@ def main() -> int:
         if "shell" not in available:
             print("\n警告: tools/list 中未找到 shell 工具，跳过 shell 测试",
                   file=sys.stderr)
-            print("提示: 确认已编译且 plugins/lib/shell_plugin.so 存在，"
-                  "config.yaml 中 tools.shell.enabled=true",
+            print("提示: 确认已编译且 plugins/shell/shell_plugin.so 存在，"
+                  "plugins/shell/shell.yaml 中 enabled=true",
                   file=sys.stderr)
             return 0
 

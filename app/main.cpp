@@ -55,7 +55,6 @@ void registerMcpMethods(mcp::Dispatcher& dispatcher,
                          mcp::ToolManager& tool_manager,
                          mcp::PluginManager& plugin_manager,
                          const std::string& plugin_dir,
-                         const std::string& config_path,
                          bool allow_plugin_reload) {
     // tools/list — 返回所有已注册工具的元数据
     dispatcher.registerMethod("tools/list",
@@ -101,10 +100,10 @@ void registerMcpMethods(mcp::Dispatcher& dispatcher,
 
     if (allow_plugin_reload) {
         dispatcher.registerMethod("plugins/reload",
-            [&plugin_manager, &tool_manager, &plugin_dir, &config_path](
+            [&plugin_manager, &tool_manager, &plugin_dir](
                 const nlohmann::json& /*params*/) -> nlohmann::json {
                 auto result = plugin_manager.reloadFromDirectory(
-                    plugin_dir, tool_manager, config_path);
+                    plugin_dir, tool_manager);
                 return {
                     {"unloaded", result.unloaded},
                     {"loaded", result.loaded},
@@ -175,12 +174,12 @@ int main(int argc, char* argv[]) {
     }
 
     // --- 7. 加载插件 ---
-    std::string plugin_dir = config.getString("plugins.directory", "./plugins/lib/");
+    std::string plugin_dir = config.getString("plugins.directory", "./plugins/");
     bool autoload = config.getBool("plugins.autoload", true);
 
     if (autoload) {
         int plugin_count = plugin_manager.loadFromDirectory(
-            plugin_dir, tool_manager, config_path);
+            plugin_dir, tool_manager);
         if (plugin_count > 0) {
             LOG_INFO("Loaded {} plugin(s) from {}", plugin_count, plugin_dir);
         } else {
@@ -194,7 +193,7 @@ int main(int argc, char* argv[]) {
     mcp::Dispatcher dispatcher;
     bool allow_plugin_reload = config.getBool("plugins.allow_reload", true);
     registerMcpMethods(dispatcher, tool_manager, plugin_manager,
-                        plugin_dir, config_path, allow_plugin_reload);
+                        plugin_dir, allow_plugin_reload);
 
     LOG_INFO("Dispatcher: {} method(s) registered", dispatcher.methodCount());
 

@@ -28,6 +28,17 @@ from mcp_tcp_client import (
 )
 
 
+def count_plugin_bundles(plugins_root: Path) -> int:
+    """统计 plugins/ 下各子目录中的 .so 数量。"""
+    if not plugins_root.is_dir():
+        return 0
+    total = 0
+    for sub in plugins_root.iterdir():
+        if sub.is_dir() and not sub.name.startswith("."):
+            total += len(list(sub.glob("*.so")))
+    return total
+
+
 def print_reload_summary(response: dict, tool_list: list[str] | None = None) -> None:
     result = response.get("result", {})
     if not result:
@@ -45,20 +56,22 @@ def print_reload_summary(response: dict, tool_list: list[str] | None = None) -> 
     print(f"  当前工具数: {tools}（含内置 read_file 等）")
     if tool_list is not None:
         print(f"  工具列表: {', '.join(tool_list) if tool_list else '(空)'}")
-        lib_dir = default_config_path().parent / "plugins" / "lib"
-        if lib_dir.is_dir():
-            so_count = len(list(lib_dir.glob("*.so")))
+        plugins_root = default_config_path().parent / "plugins"
+        if plugins_root.is_dir():
+            so_count = count_plugin_bundles(plugins_root)
             if isinstance(loaded, int) and so_count > loaded:
-                print(f"  注意: plugins/lib/ 有 {so_count} 个 .so，"
+                print(f"  注意: plugins/ 下共 {so_count} 个 .so，"
                       f"但只加载了 {loaded} 个，请查看 logs/solarmcp.log",
                       file=sys.stderr)
-            elif "shell" not in tool_list and not (lib_dir / "shell_plugin.so").exists():
-                print("  注意: plugins/lib/ 缺少 shell_plugin.so，"
+            shell_so = plugins_root / "shell" / "shell_plugin.so"
+            shell_yaml = plugins_root / "shell" / "shell.yaml"
+            if "shell" not in tool_list and not shell_so.exists():
+                print("  注意: 缺少 plugins/shell/shell_plugin.so，"
                       "请运行: cmake --build build --target shell_plugin",
                       file=sys.stderr)
-            elif "shell" not in tool_list and (lib_dir / "shell_plugin.so").exists():
-                print("  注意: shell_plugin.so 存在但未注册，"
-                      "检查 config.yaml tools.shell.enabled",
+            elif "shell" not in tool_list and shell_so.exists():
+                print("  注意: shell 插件已加载 .so 但未注册 shell 工具，"
+                      f"检查 {shell_yaml} 中 enabled",
                       file=sys.stderr)
 
 
