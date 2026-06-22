@@ -9,8 +9,38 @@ target_include_directories(read_file_plugin PRIVATE
 target_link_libraries(read_file_plugin PRIVATE
     nlohmann_json::nlohmann_json
 )
-# 确保使用 .so 扩展名（而非 .dylib 或 .dll）
 set_target_properties(read_file_plugin PROPERTIES
     PREFIX ""
     SUFFIX ".so"
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins
 )
+
+# Shell Tool 插件
+add_library(shell_plugin MODULE
+    shell/shell_tool.cpp
+    shell/shell_plugin.cpp
+)
+target_include_directories(shell_plugin PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/plugins
+)
+target_link_libraries(shell_plugin PRIVATE
+    nlohmann_json::nlohmann_json
+    yaml-cpp::yaml-cpp
+)
+set_target_properties(shell_plugin PROPERTIES
+    PREFIX ""
+    SUFFIX ".so"
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins
+)
+
+# 构建后将 .so 复制到 plugins/，与 config.yaml 中 plugins.directory 一致
+foreach(_plugin read_file_plugin shell_plugin)
+    add_custom_command(TARGET ${_plugin} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+            $<TARGET_FILE:${_plugin}>
+            ${CMAKE_SOURCE_DIR}/plugins/
+        COMMENT "Copying ${_plugin} to plugins/"
+    )
+endforeach()

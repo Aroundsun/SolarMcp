@@ -161,7 +161,7 @@ int main(int argc, char* argv[]) {
 
     if (autoload) {
         int plugin_count = plugin_manager.loadFromDirectory(
-            plugin_dir, tool_manager);
+            plugin_dir, tool_manager, config_path);
         if (plugin_count > 0) {
             LOG_INFO("Loaded {} plugin(s) from {}", plugin_count, plugin_dir);
         } else {

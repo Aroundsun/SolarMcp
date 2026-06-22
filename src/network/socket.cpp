@@ -1,7 +1,10 @@
 #include "mcp/network/socket.h"
 
+#include <cerrno>
+#include <cstring>
 #include <fcntl.h>
 #include <stdexcept>
+#include <string>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -59,7 +62,9 @@ void Socket::createTcp() {
 void Socket::bind(const InetAddress& addr) {
     int ret = ::bind(fd_, addr.sockAddr(), addr.sockLen());
     if (ret < 0) {
-        throw std::runtime_error("Socket::bind failed");
+        throw std::runtime_error(
+            "Socket::bind failed on " + addr.toIpPort() + ": " +
+            std::strerror(errno));
     }
 }
 

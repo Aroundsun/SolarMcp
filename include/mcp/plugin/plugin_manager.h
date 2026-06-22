@@ -17,6 +17,9 @@ class Tool;
 ///   extern "C" const char* mcp_plugin_name();
 ///   extern "C" const char* mcp_plugin_version();
 ///   extern "C" int mcp_plugin_register(mcp::ToolManager* manager);
+///
+/// 可选（加载前调用）：
+///   extern "C" void mcp_plugin_set_config_path(const char* path);
 class PluginManager {
 public:
     PluginManager() = default;
@@ -26,7 +29,8 @@ public:
     /// 各插件注册函数以给定 ToolManager 调用。
     /// @return 成功加载的插件数量
     int loadFromDirectory(const std::string& plugin_dir,
-                          ToolManager& tool_manager);
+                          ToolManager& tool_manager,
+                          const std::string& config_path = "");
 
     /// 卸载所有已加载插件并 dlclose 其句柄。
     void unloadAll();
@@ -37,7 +41,8 @@ public:
 private:
     /// 加载单个插件 .so 文件。
     /// @return 成功返回 true
-    bool loadPlugin(const std::string& so_path, ToolManager& tool_manager);
+    bool loadPlugin(const std::string& so_path, ToolManager& tool_manager,
+                    const std::string& config_path);
 
     /// 所有已加载插件的 dlopen 句柄。
     std::vector<void*> handles_;

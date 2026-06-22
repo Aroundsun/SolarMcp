@@ -82,6 +82,10 @@ target_include_directories(solarmcpd PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
 target_link_libraries(solarmcpd PRIVATE solarmcp)
+# 向插件导出主程序符号（ToolManager、ReadFileTool 等）
+if(NOT MSVC)
+    target_link_options(solarmcpd PRIVATE "-rdynamic")
+endif()
 
 # ---------------------------------------------------------------------------
 # 插件（可选）

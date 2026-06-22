@@ -49,7 +49,23 @@ echo "hello SolarMcp" > /tmp/test.txt
 python3 scripts/client_test.py
 ```
 
-成功时会分别打印 `tools/list` 与 `tools/call read_file` 的 JSON 响应。
+成功时会分别打印 `authenticate`（若启用认证）、`tools/list`、`tools/call read_file` 与 `tools/call shell` 的 JSON 响应。
+
+自定义 shell 命令：
+
+```bash
+python3 scripts/client_test.py --shell-command "uname -a"
+python3 scripts/client_test.py --skip-shell   # 仅测 read_file
+```
+
+`shell` 工具由 `shell_plugin.so` 提供（编译后自动复制到 `plugins/`）。调用示例：
+
+```bash
+# tools/call 参数示例
+{"name": "shell", "arguments": {"command": "echo hello"}}
+```
+
+> **安全提示**：`shell` 等同于远程命令执行，生产环境请保持 `auth.enabled: true` 并更换默认 token。
 
 > **说明**：本项目当前通过 **TCP（默认 8090 端口）** 提供 JSON-RPC 服务，不是 Cursor 常见的 stdio MCP。若端口已被占用，先结束旧进程再启动：`ss -ltnp | grep 8090`，然后 `kill <PID>`。
 
@@ -67,7 +83,7 @@ logging:
   file: "./logs/solarmcp.log"
 
 plugins:
-  directory: "./plugins/"
+  directory: "./plugins/"   # 构建后 .so 会自动复制到此目录
   autoload: true
 
 tools:
@@ -75,6 +91,12 @@ tools:
     enabled: true
     max_size_mb: 10
     allowed_paths: ["/tmp", "/home"]
+
+  shell:
+    enabled: true
+    timeout_sec: 30
+    max_output_mb: 10
+    allowed_shells: ["/bin/sh", "/bin/bash"]
 ```
 
 ## 项目结构

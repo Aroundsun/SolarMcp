@@ -1,6 +1,5 @@
 # SolarMcp 单元测试
 
-# 收集所有测试源文件
 set(TEST_SOURCES
     test_logger.cpp
     test_config.cpp
@@ -30,3 +29,21 @@ foreach(test_src ${TEST_SOURCES})
     )
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
+
+# shell 工具在 plugins/ 目录，单独编译其源文件
+add_executable(test_shell_tool
+    test_shell_tool.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/shell/shell_tool.cpp
+)
+target_include_directories(test_shell_tool PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/plugins
+)
+target_link_libraries(test_shell_tool PRIVATE
+    solarmcp
+    GTest::gtest
+    GTest::gtest_main
+    pthread
+)
+add_test(NAME test_shell_tool COMMAND test_shell_tool)

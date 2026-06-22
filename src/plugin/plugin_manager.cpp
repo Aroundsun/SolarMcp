@@ -20,7 +20,8 @@ PluginManager::~PluginManager() {
 // ---------------------------------------------------------------------------
 
 int PluginManager::loadFromDirectory(const std::string& plugin_dir,
-                                      ToolManager& tool_manager) {
+                                      ToolManager& tool_manager,
+                                      const std::string& config_path) {
     DIR* dir = ::opendir(plugin_dir.c_str());
     if (!dir) {
         return 0; // 目录不存在或无法打开
@@ -44,7 +45,7 @@ int PluginManager::loadFromDirectory(const std::string& plugin_dir,
         }
         full_path += name;
 
-        if (loadPlugin(full_path, tool_manager)) {
+        if (loadPlugin(full_path, tool_manager, config_path)) {
             ++count;
         }
     }
@@ -71,7 +72,8 @@ void PluginManager::unloadAll() {
 // ---------------------------------------------------------------------------
 
 bool PluginManager::loadPlugin(const std::string& so_path,
-                                ToolManager& tool_manager) {
+                                ToolManager& tool_manager,
+                                const std::string& config_path) {
     // 清除已有错误
     ::dlerror();
 
@@ -82,6 +84,16 @@ bool PluginManager::loadPlugin(const std::string& so_path,
             // 由调用方记录日志
         }
         return false;
+    }
+
+    // 可选：传递配置文件路径
+    if (!config_path.empty()) {
+        using SetConfigFunc = void (*)(const char*);
+        auto* set_config_fn = reinterpret_cast<SetConfigFunc>(
+            ::dlsym(handle, "mcp_plugin_set_config_path"));
+        if (set_config_fn) {
+            set_config_fn(config_path.c_str());
+        }
     }
 
     // 查找必需的符号

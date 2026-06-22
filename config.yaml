@@ -26,6 +26,14 @@ tools:
     max_size_mb: 10
     allowed_paths: ["/tmp", "/home"]
 
+  # Shell 命令执行（插件 shell_plugin 读取此配置）
+  # 警告：等同于远程 shell，务必开启 auth 并仅在受信环境使用
+  shell:
+    enabled: true
+    timeout_sec: 30
+    max_output_mb: 10
+    allowed_shells: ["/bin/sh", "/bin/bash"]
+
 auth:
   enabled: true
   token: "your-secret-token-change-me"
