@@ -165,7 +165,7 @@ int main(int argc, char* argv[]) {
         if (plugin_count > 0) {
             LOG_INFO("Loaded {} plugin(s) from {}", plugin_count, plugin_dir);
         } else {
-            LOG_DEBUG("No plugins found in {}", plugin_dir);
+            LOG_DEBUG("No plugins loaded from {}", plugin_dir);
         }
     }
 
