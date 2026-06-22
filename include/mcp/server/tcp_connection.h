@@ -68,6 +68,16 @@ public:
     /// 设置此连接的协议编解码器。
     void setCodec(std::unique_ptr<Codec> codec);
 
+    // ---- 认证 ----
+
+    /// 标记此连接已通过认证。
+    void setAuthenticated(bool authenticated) {
+        authenticated_ = authenticated;
+    }
+
+    /// 此连接是否已通过认证？
+    bool isAuthenticated() const noexcept { return authenticated_; }
+
     // ---- 回调设置 ----
 
     void setMessageCallback(MessageCallback cb) {
@@ -119,6 +129,8 @@ private:
 
     MessageCallback message_callback_;
     CloseCallback close_callback_;
+
+    bool authenticated_{false};  // 连接级认证状态
 };
 
 } // namespace mcp

@@ -40,7 +40,8 @@ public:
     /// 停止服务器并优雅关闭所有连接。
     void stop();
 
-    /// 设置收到完整消息时调用的回调。
+    /// 设置收到完整消息时调用的回调（在认证通过之后调用）。
+    /// 内置 `authenticate` 与认证检查由服务器统一处理，不会进入此回调。
     void setMessageCallback(MessageCallback cb) {
         message_callback_ = std::move(cb);
     }
@@ -79,6 +80,16 @@ public:
     /// 返回工具管理器（未设置时可能为 nullptr）。
     ToolManager* toolManager() const noexcept { return tool_manager_; }
 
+    /// 设置认证令牌以启用连接级 Token 认证。
+    /// 传入非空字符串启用认证；清空则禁用。
+    void setAuthToken(std::string token) {
+        auth_token_ = std::move(token);
+        auth_enabled_ = !auth_token_.empty();
+    }
+
+    /// 认证是否已启用？
+    bool isAuthEnabled() const noexcept { return auth_enabled_; }
+
 private:
     /// acceptor channel 在新连接到达时调用。
     void onNewConnection(int sock_fd, const InetAddress& peer_addr);
@@ -86,8 +97,15 @@ private:
     /// TcpConnection 销毁时调用。
     void removeConnection(TcpConnection* conn);
 
-    /// 默认消息处理：decode → dispatch → encode → reply。
+    /// 统一消息入口：认证检查 → 用户回调或默认 Dispatcher 分发。
     void onMessage(TcpConnection* conn, const Message& message);
+
+    /// 默认 JSON-RPC 分发（Dispatcher）。
+    void dispatchMessage(TcpConnection* conn, const Request& request);
+
+    /// 处理内置 "authenticate" 方法（连接级 Token 认证）。
+    /// 认证未启用时返回 `{"status":"auth_disabled"}`。
+    void handleAuthenticate(TcpConnection* conn, const Request& request);
 
     EventLoop* loop_;
     std::unique_ptr<Socket> acceptor_;
@@ -107,6 +125,9 @@ private:
 
     std::shared_ptr<ThreadPool> thread_pool_;
     bool started_{false};
+
+    std::string auth_token_;
+    bool auth_enabled_{false};
 
     static int next_conn_id_;
 };

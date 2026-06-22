@@ -190,6 +190,18 @@ int main(int argc, char* argv[]) {
     server.setToolManager(&tool_manager);
     server.setThreadPool(thread_pool);
 
+    // ---- 认证配置 ----
+    if (config.getBool("auth.enabled", false)) {
+        std::string auth_token = config.getString("auth.token", "");
+        if (!auth_token.empty()) {
+            server.setAuthToken(auth_token);
+            LOG_INFO("Token authentication enabled");
+        } else {
+            LOG_WARN("auth.enabled=true but auth.token is empty — "
+                     "authentication disabled");
+        }
+    }
+
     server.start();
 
     // --- 10. 注册信号处理 ---

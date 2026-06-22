@@ -110,15 +110,10 @@ void TcpServer::onNewConnection(int sock_fd, const InetAddress& peer_addr) {
     // 设置 JSON-RPC 编解码器以进行 Content-Length 分帧
     conn->setCodec(std::make_unique<JsonRpcCodec>());
 
-    // 设置消息回调 — 默认：通过 onMessage 分发
-    // 若用户设置了自定义 message_callback_ 则使用之
-    if (message_callback_) {
-        conn->setMessageCallback(message_callback_);
-    } else {
-        conn->setMessageCallback([this](TcpConnection* c, const Message& msg) {
-            onMessage(c, msg);
-        });
-    }
+    // 统一经 onMessage 入口，确保认证逻辑对用户回调同样生效
+    conn->setMessageCallback([this](TcpConnection* c, const Message& msg) {
+        onMessage(c, msg);
+    });
 
     conn->setCloseCallback([this](TcpConnection* c) {
         if (close_callback_) {
@@ -159,7 +154,7 @@ void TcpServer::removeConnection(TcpConnection* conn) {
 }
 
 // ---------------------------------------------------------------------------
-// onMessage — 默认分发：Request → Dispatcher → Response → send
+// onMessage — 认证 → 用户回调或默认 Dispatcher 分发
 // ---------------------------------------------------------------------------
 
 void TcpServer::onMessage(TcpConnection* conn, const Message& message) {
@@ -173,6 +168,35 @@ void TcpServer::onMessage(TcpConnection* conn, const Message& message) {
     LOG_DEBUG("TcpServer::onMessage: method={}, id={}",
               request.method, request.idString());
 
+    // ---- 内置 authenticate 方法（认证前即可调用） ----
+    if (request.method == "authenticate") {
+        handleAuthenticate(conn, request);
+        return;
+    }
+
+    // ---- 认证检查（所有其他方法，含用户自定义回调） ----
+    if (auth_enabled_ && !conn->isAuthenticated()) {
+        auto response = Response::makeError(
+            request.id,
+            ErrorCodes::kAuthRequired,
+            "Authentication required — call 'authenticate' first");
+        conn->send(Message(std::move(response)));
+        return;
+    }
+
+    if (message_callback_) {
+        message_callback_(conn, message);
+        return;
+    }
+
+    dispatchMessage(conn, request);
+}
+
+// ---------------------------------------------------------------------------
+// dispatchMessage — 默认 Dispatcher 路由
+// ---------------------------------------------------------------------------
+
+void TcpServer::dispatchMessage(TcpConnection* conn, const Request& request) {
     Response response;
 
     if (dispatcher_ && dispatcher_->hasMethod(request.method)) {
@@ -188,6 +212,60 @@ void TcpServer::onMessage(TcpConnection* conn, const Message& message) {
 
     // 将响应发回客户端
     conn->send(Message(std::move(response)));
+}
+
+// ---------------------------------------------------------------------------
+// handleAuthenticate — 连接级 Token 认证
+// ---------------------------------------------------------------------------
+
+void TcpServer::handleAuthenticate(TcpConnection* conn, const Request& request) {
+    // 认证未启用：无需 token，直接告知客户端
+    if (!auth_enabled_) {
+        auto resp = Response::success(
+            request.id,
+            {{"status", "auth_disabled"}});
+        conn->send(Message(std::move(resp)));
+        return;
+    }
+
+    // 已认证则直接返回成功
+    if (conn->isAuthenticated()) {
+        auto resp = Response::success(
+            request.id,
+            {{"status", "already_authenticated"}});
+        conn->send(Message(std::move(resp)));
+        return;
+    }
+
+    // 验证 token 参数
+    if (!request.params.contains("token") || !request.params["token"].is_string()) {
+        auto resp = Response::makeError(
+            request.id,
+            ErrorCodes::kInvalidParams,
+            "Missing or invalid 'token' parameter");
+        conn->send(Message(std::move(resp)));
+        return;
+    }
+
+    std::string provided = request.params["token"].get<std::string>();
+    if (provided != auth_token_) {
+        LOG_WARN("TcpServer: authentication failed for connection {}",
+                 conn->name());
+        auto resp = Response::makeError(
+            request.id,
+            ErrorCodes::kAuthFailed,
+            "Invalid token");
+        conn->send(Message(std::move(resp)));
+        return;
+    }
+
+    conn->setAuthenticated(true);
+    LOG_INFO("TcpServer: connection {} authenticated", conn->name());
+
+    auto resp = Response::success(
+        request.id,
+        {{"status", "authenticated"}});
+    conn->send(Message(std::move(resp)));
 }
 
 } // namespace mcp

@@ -70,6 +70,8 @@ namespace ErrorCodes {
     constexpr int kToolNotFound   = -32000;  // 请求的工具未找到
     constexpr int kToolError      = -32001;  // 工具执行错误
     constexpr int kTimeout        = -32002;  // 执行超时
+    constexpr int kAuthRequired   = -32003;  // 需要认证但未提供凭证
+    constexpr int kAuthFailed     = -32004;  // 认证凭证无效
 } // namespace ErrorCodes
 
 } // namespace mcp

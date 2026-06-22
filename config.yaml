@@ -27,5 +27,5 @@ tools:
     allowed_paths: ["/tmp", "/home"]
 
 auth:
-  enabled: false
-  token: ""
+  enabled: true
+  token: "your-secret-token-change-me"
