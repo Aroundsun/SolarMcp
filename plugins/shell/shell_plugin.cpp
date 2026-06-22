@@ -1,19 +1,20 @@
-/// Shell Tool 插件：通过 C ABI 注册 Shell 命令执行工具。
-///
-/// 可选导出 mcp_plugin_set_config_path()，从 config.yaml 读取 tools.shell 配置。
+/// Shell 插件：纯 C ABI 注册，shell 逻辑仍在同 .so 内的 ShellTool（不跨边界传 C++ 对象）。
 
 #include "plugins/shell/shell_tool.h"
-#include "mcp/tool/tool_manager.h"
+#include "mcp/plugin/plugin_abi.h"
 
 #include <yaml-cpp/yaml.h>
 
-#include <memory>
-#include <string>
-#include <vector>
+#include <nlohmann/json.hpp>
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 namespace {
 
-std::string g_config_path;
+const mcp_host_api* g_host = nullptr;
+mcp::ShellTool* g_shell_tool = nullptr;
 
 struct ShellPluginConfig {
     bool enabled = true;
@@ -22,14 +23,14 @@ struct ShellPluginConfig {
     std::vector<std::string> allowed_shells{"/bin/sh", "/bin/bash"};
 };
 
-ShellPluginConfig loadShellConfig() {
+ShellPluginConfig loadShellConfig(const char* config_path) {
     ShellPluginConfig cfg;
-    if (g_config_path.empty()) {
+    if (!config_path || !*config_path) {
         return cfg;
     }
 
     try {
-        YAML::Node root = YAML::LoadFile(g_config_path);
+        YAML::Node root = YAML::LoadFile(config_path);
         YAML::Node shell = root["tools"]["shell"];
         if (!shell || !shell.IsMap()) {
             return cfg;
@@ -52,49 +53,114 @@ ShellPluginConfig loadShellConfig() {
             }
         }
     } catch (...) {
-        // 配置解析失败时使用默认值
+        // 使用默认值
     }
 
     return cfg;
+}
+
+int shellExecute(const char* params_json, char** out_json, char** err_msg) {
+    if (!g_shell_tool) {
+        if (err_msg) {
+            *err_msg = ::strdup("shell tool not initialized");
+        }
+        return MCP_PLUGIN_ERR_INTERNAL;
+    }
+
+    try {
+        auto params = nlohmann::json::parse(params_json ? params_json : "{}");
+        mcp::Context ctx;
+        auto result = g_shell_tool->execute(params, ctx);
+
+        if (result.is_error) {
+            if (err_msg) {
+                *err_msg = ::strdup(result.error->message.c_str());
+            }
+            return MCP_PLUGIN_ERR_INTERNAL;
+        }
+
+        std::string body = result.content.dump();
+        *out_json = static_cast<char*>(std::malloc(body.size() + 1));
+        if (!*out_json) {
+            return MCP_PLUGIN_ERR_INTERNAL;
+        }
+        std::memcpy(*out_json, body.c_str(), body.size() + 1);
+        return MCP_PLUGIN_OK;
+    } catch (const std::exception& e) {
+        if (err_msg) {
+            *err_msg = ::strdup(e.what());
+        }
+        return MCP_PLUGIN_ERR_INTERNAL;
+    }
 }
 
 } // namespace
 
 extern "C" {
 
-const char* mcp_plugin_name() {
+int mcp_plugin_abi_version(void) {
+    return SOLARMCP_PLUGIN_ABI;
+}
+
+const char* mcp_plugin_version(void) {
+    return "2.0.0";
+}
+
+const char* mcp_plugin_name(void) {
     return "shell_plugin";
 }
 
-const char* mcp_plugin_version() {
-    return "1.0.0";
+int mcp_plugin_init(const mcp_host_api* host) {
+    if (!host || host->abi_version != SOLARMCP_PLUGIN_ABI ||
+        !host->register_tool) {
+        return MCP_PLUGIN_ERR_HOST;
+    }
+    g_host = host;
+    return MCP_PLUGIN_OK;
 }
 
-void mcp_plugin_set_config_path(const char* path) {
-    g_config_path = path ? path : "";
-}
-
-int mcp_plugin_register(mcp::ToolManager* manager) {
-    if (!manager) {
-        return -1;
+int mcp_plugin_register(void) {
+    if (!g_host) {
+        return MCP_PLUGIN_ERR_HOST;
     }
 
-    ShellPluginConfig cfg = loadShellConfig();
+    const char* config_path = g_host->get_config_path
+        ? g_host->get_config_path(g_host->host_ctx)
+        : "";
+
+    ShellPluginConfig cfg = loadShellConfig(config_path);
     if (!cfg.enabled) {
-        return 0;
+        delete g_shell_tool;
+        g_shell_tool = nullptr;
+        return MCP_PLUGIN_OK;
     }
 
-    auto tool = std::make_unique<mcp::ShellTool>(
+    delete g_shell_tool;
+    g_shell_tool = new mcp::ShellTool(
         cfg.timeout_sec,
         std::move(cfg.allowed_shells),
-        cfg.max_output_bytes
-    );
+        cfg.max_output_bytes);
 
-    if (!manager->registerTool(std::move(tool))) {
-        return -2;
-    }
+    char schema_buf[512];
+    std::snprintf(schema_buf, sizeof(schema_buf),
+        "{\"type\":\"object\",\"properties\":{"
+        "\"command\":{\"type\":\"string\",\"description\":\"Shell command to execute\"},"
+        "\"timeout_seconds\":{\"type\":\"integer\",\"description\":\"Timeout in seconds (default: %d)\"}"
+        "},\"required\":[\"command\"]}",
+        cfg.timeout_sec);
 
-    return 0;
+    return g_host->register_tool(
+        g_host->host_ctx,
+        "shell",
+        "Execute a shell command and return stdout, stderr and exit code",
+        schema_buf,
+        shellExecute);
+}
+
+void mcp_plugin_shutdown(void) {
+    delete g_shell_tool;
+    g_shell_tool = nullptr;
+    g_host = nullptr;
 }
 
 } // extern "C"

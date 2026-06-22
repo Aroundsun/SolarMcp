@@ -21,8 +21,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="SolarMcp 客户端测试")
     parser.add_argument("--host", default="127.0.0.1", help="服务器地址")
     parser.add_argument("--port", type=int, default=8090, help="服务器端口")
-    parser.add_argument("--config", type=default_config_path,
-                        help="配置文件路径（读取 auth 设置）")
+    parser.add_argument("--config", type=Path, default=default_config_path(),
+                        help="配置文件路径（读取 auth 设置，默认: config.yaml）")
     parser.add_argument("--token", help="认证 Token（默认从 config.yaml 读取）")
     parser.add_argument("--no-auth", action="store_true",
                         help="跳过认证（服务器未启用 auth 时使用）")

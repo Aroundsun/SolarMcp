@@ -37,6 +37,8 @@ struct PluginFixture {
     mcp::PluginManager pm;
     mcp::ToolManager tm;
 
+    ~PluginFixture() { shutdown(); }
+
     void shutdown() {
         pm.unloadAll(tm);
     }

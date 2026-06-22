@@ -8,7 +8,7 @@
 - **线程池**：固定大小工作线程池，支持基于 `std::future` 的任务提交
 - **异步日志**：双缓冲、非阻塞写入
 - **JSON-RPC 2.0**：完整协议支持，Content-Length 分帧
-- **插件系统**：基于 dlopen 的动态工具加载，C ABI 接口
+- **插件系统**：基于 dlopen 的动态工具加载，[纯 C ABI](docs/插件ABI.md)（`plugin_abi.h`），支持 [热重载](docs/插件热重载.md)
 - **MCP 工具**：可扩展工具注册表，支持 `tools/list` 与 `tools/call`
 - **全面 RAII**：现代 C++ 内存管理，避免裸指针泄漏
 
@@ -76,7 +76,7 @@ cmake --build build --target shell_plugin
 python3 scripts/reload_plugins.py --list-tools
 ```
 
-详见 **[docs/插件热重载.md](docs/插件热重载.md)**。
+详见 **[docs/插件热重载.md](docs/插件热重载.md)**；编写插件见 **[docs/插件ABI.md](docs/插件ABI.md)**。
 
 > **说明**：本项目当前通过 **TCP（默认 8090 端口）** 提供 JSON-RPC 服务，不是 Cursor 常见的 stdio MCP。若端口已被占用，先结束旧进程再启动：`ss -ltnp | grep 8090`，然后 `kill <PID>`。
 
@@ -133,7 +133,10 @@ SolarMcp/
 │   ├── example/      #   最小示例插件
 │   ├── shell/        #   shell 插件源码
 │   └── lib/          #   运行时 .so（构建生成）
-├── docs/             # 文档（插件热重载、系统设计等）
+├── docs/             # 文档
+│   ├── 插件ABI.md        # 纯 C 插件 ABI 设计与编写
+│   ├── 插件热重载.md     # 运行时热重载指南
+│   └── 系统设计.md       # 架构与任务分解
 ├── scripts/          # 构建与测试脚本
 ├── tests/            # GoogleTest 单元测试
 └── third_party/      # FetchContent 依赖管理

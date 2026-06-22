@@ -351,7 +351,8 @@ classDiagram
 
     class ToolManager {
         -unordered_map~string,unique_ptr~Tool~~ tools_
-        +registerTool(unique_ptr~Tool~) void
+        +registerTool(unique_ptr~Tool~) bool
+        +unregisterTool(name) bool
         +getTool(name) Tool*
         +listTools() vector~ToolInfo~
         +callTool(name, params, ctx) Result
@@ -364,13 +365,37 @@ classDiagram
         +json inputSchema
     }
 
+    class CallbackTool {
+        -string name_
+        -string description_
+        -string input_schema_json_
+        -mcp_tool_execute_fn execute_fn_
+        +CallbackTool(name, desc, schema, fn)
+        +name() string
+        +description() string
+        +inputSchema() json
+        +execute(params, ctx) Result
+    }
+
     class PluginManager {
-        -string pluginDir_
-        -vector~void*~ handles_
-        +loadFromDirectory(dir) vector~Tool*~
-        +unloadAll() void
-        -loadPlugin(path) void*
-        -scanDirectory(dir) vector~string~
+        -vector~LoadedPlugin~ plugins_
+        +loadFromDirectory(dir, tm, config) int
+        +reloadFromDirectory(dir, tm, config) PluginReloadResult
+        +reloadPlugin(path, tm, config) bool
+        +unloadAll(tm) void
+        +loadedCount() size_t
+        -loadPlugin(path, tm, config) bool
+        -validatePlugin(path, trial_tm, config) bool
+        -unloadPlugin(plugin, tm) void
+    }
+
+    class LoadedPlugin {
+        +void* handle
+        +string path
+        +string name
+        +string version
+        +int abi_version
+        +vector~string~ tool_names
     }
 
     class TimerWheel {
@@ -427,9 +452,12 @@ classDiagram
     Dispatcher --> ToolManager : delegates
     ToolManager --> Tool : manages
     Tool <|-- ReadFileTool
+    Tool <|-- CallbackTool
     ReadFileTool --> Result : returns
-    PluginManager --> ToolManager : registers to
-    PluginManager ..> Tool : creates via dlsym
+    CallbackTool --> Result : returns
+    PluginManager --> ToolManager : registers via CallbackTool
+    PluginManager *-- LoadedPlugin : tracks
+    PluginManager ..> CallbackTool : creates via register_tool
     TimerWheel *-- TimerEntry
     Tool --> Result : returns
     Tool --> Context : receives

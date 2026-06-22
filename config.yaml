@@ -17,7 +17,7 @@ thread_pool:
   max_queue_size: 10000
 
 plugins:
-  directory: "./plugins/lib/"   # 动态库目录（源码在 plugins/ 各子目录）
+  directory: "./plugins/lib/"   # 运行时 .so（见 docs/插件ABI.md）
   autoload: true
   allow_reload: true            # 允许运行时 plugins/reload 热重载
 

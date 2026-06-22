@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(SolarMcp VERSION 0.1.0 LANGUAGES CXX)
+project(SolarMcp VERSION 0.1.0 LANGUAGES CXX C)
 
 # ---------------------------------------------------------------------------
 # C++20 标准
@@ -56,6 +56,7 @@ set(MCP_SOURCES
     src/tool/read_file_tool.cpp
     # 插件
     src/plugin/plugin_manager.cpp
+    src/plugin/callback_tool.cpp
     # 定时器
     src/timer/timer_wheel.cpp
 )
@@ -82,10 +83,8 @@ target_include_directories(solarmcpd PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
 target_link_libraries(solarmcpd PRIVATE solarmcp)
-# 向插件导出主程序符号（ToolManager、ReadFileTool 等）
-if(NOT MSVC)
-    target_link_options(solarmcpd PRIVATE "-rdynamic")
-endif()
+
+# 插件使用纯 C ABI，不再依赖主程序导出 C++ 符号
 
 # ---------------------------------------------------------------------------
 # 插件（可选）

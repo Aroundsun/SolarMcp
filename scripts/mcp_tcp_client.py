@@ -50,13 +50,16 @@ def load_auth_config(config_path: Path) -> tuple[bool, str]:
 
 
 def resolve_auth(
-    config_path: Path,
+    config_path: Path | None,
     token_override: str | None,
     no_auth: bool,
 ) -> tuple[bool, str]:
     """根据配置与命令行参数解析是否认证及 token。"""
     auth_enabled = False
     token = token_override or ""
+
+    if config_path is None:
+        config_path = default_config_path()
 
     if config_path.is_file():
         auth_enabled, config_token = load_auth_config(config_path)

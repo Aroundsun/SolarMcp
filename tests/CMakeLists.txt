@@ -35,9 +35,6 @@ if(TARGET shell_plugin)
     add_dependencies(test_plugin shell_plugin minimal_plugin)
     target_compile_definitions(test_plugin PRIVATE
         "SOLARMCP_PLUGIN_DIR=\"${CMAKE_BINARY_DIR}/plugins/lib\"")
-    if(NOT MSVC)
-        target_link_options(test_plugin PRIVATE "-rdynamic")
-    endif()
 endif()
 
 # shell 工具在 plugins/ 目录，单独编译其源文件
