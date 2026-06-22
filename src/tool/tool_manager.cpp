@@ -77,4 +77,8 @@ void ToolManager::clear() {
     tools_.clear();
 }
 
+bool ToolManager::unregisterTool(const std::string& name) {
+    return tools_.erase(name) > 0;
+}
+
 } // namespace mcp

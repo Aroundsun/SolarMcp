@@ -58,7 +58,7 @@ python3 scripts/client_test.py --shell-command "uname -a"
 python3 scripts/client_test.py --skip-shell   # 仅测 read_file
 ```
 
-`shell` 工具由 `shell_plugin.so` 提供（编译后自动复制到 `plugins/`）。调用示例：
+`shell` 工具由 `plugins/lib/shell_plugin.so` 提供（编译后自动生成）。调用示例：
 
 ```bash
 # tools/call 参数示例
@@ -66,6 +66,17 @@ python3 scripts/client_test.py --skip-shell   # 仅测 read_file
 ```
 
 > **安全提示**：`shell` 等同于远程命令执行，生产环境请保持 `auth.enabled: true` 并更换默认 token。
+
+### 插件热重载
+
+改插件代码后无需重启服务器：
+
+```bash
+cmake --build build --target shell_plugin
+python3 scripts/reload_plugins.py --list-tools
+```
+
+详见 **[docs/插件热重载.md](docs/插件热重载.md)**。
 
 > **说明**：本项目当前通过 **TCP（默认 8090 端口）** 提供 JSON-RPC 服务，不是 Cursor 常见的 stdio MCP。若端口已被占用，先结束旧进程再启动：`ss -ltnp | grep 8090`，然后 `kill <PID>`。
 
@@ -83,8 +94,9 @@ logging:
   file: "./logs/solarmcp.log"
 
 plugins:
-  directory: "./plugins/"   # 构建后 .so 会自动复制到此目录
+  directory: "./plugins/lib/"   # 动态库目录（源码在 plugins/ 各子目录）
   autoload: true
+  allow_reload: true            # 允许 plugins/reload 热重载
 
 tools:
   read_file:
@@ -117,7 +129,11 @@ SolarMcp/
 │   ├── timer/        # 时间轮
 │   └── tool/         # 工具抽象与实现
 ├── src/              # 实现源码
-├── plugins/          # 动态加载插件
+├── plugins/          # 插件源码与动态库
+│   ├── shell/        #   shell 插件源码
+│   ├── filesystem/   #   read_file 插件源码
+│   └── lib/          #   运行时 .so（构建生成）
+├── docs/             # 文档（插件热重载、系统设计等）
 ├── scripts/          # 构建与测试脚本
 ├── tests/            # GoogleTest 单元测试
 └── third_party/      # FetchContent 依赖管理

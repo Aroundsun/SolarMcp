@@ -3,11 +3,13 @@
 #include "mcp/tool/tool_manager.h"
 #include "mcp/logger/logger.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <dirent.h>
 #include <dlfcn.h>
 #include <string>
+#include <unordered_set>
 
 namespace mcp {
 
@@ -18,7 +20,14 @@ const char* dlErrorString() {
     return (err && *err) ? err : "unknown error";
 }
 
-/// 从已加载句柄读取插件名；失败时回退为 .so 路径。
+std::unordered_set<std::string> toolNameSet(const ToolManager& tool_manager) {
+    std::unordered_set<std::string> names;
+    for (const auto& info : tool_manager.listTools()) {
+        names.insert(info.name);
+    }
+    return names;
+}
+
 std::string pluginName(void* handle, const std::string& fallback) {
     using NameFunc = const char* (*)();
     ::dlerror();
@@ -49,19 +58,23 @@ void logRegisterFailure(const std::string& so_path, int code) {
     }
 }
 
-} // namespace
-
-// ---------------------------------------------------------------------------
-// 析构
-// ---------------------------------------------------------------------------
-
-PluginManager::~PluginManager() {
-    unloadAll();
+bool isPluginSoFile(const std::string& name) {
+    if (name.size() < 4) return false;
+    if (name.compare(name.size() - 3, 3, ".so") != 0) return false;
+    if (name.size() > 4 && name[name.size() - 4] == '.') return false;
+    return true;
 }
 
-// ---------------------------------------------------------------------------
-// loadFromDirectory
-// ---------------------------------------------------------------------------
+} // namespace
+
+PluginManager::~PluginManager() {
+    if (!plugins_.empty()) {
+        LOG_WARN("PluginManager destroyed with {} plugin(s) still loaded — "
+                 "call unloadAll(tool_manager) first",
+                 plugins_.size());
+        unloadHandlesOnly();
+    }
+}
 
 int PluginManager::loadFromDirectory(const std::string& plugin_dir,
                                       ToolManager& tool_manager,
@@ -77,12 +90,8 @@ int PluginManager::loadFromDirectory(const std::string& plugin_dir,
     int failed = 0;
     struct dirent* entry;
     while ((entry = ::readdir(dir)) != nullptr) {
-        std::string name = entry->d_name;
-
-        // 仅加载 .so 文件 — 拒绝 foo.so.bak、foo.so.1 等模式
-        if (name.size() < 4) continue;
-        if (name.compare(name.size() - 3, 3, ".so") != 0) continue;
-        if (name.size() > 4 && name[name.size() - 4] == '.') continue;
+        const std::string name = entry->d_name;
+        if (!isPluginSoFile(name)) continue;
 
         std::string full_path = plugin_dir;
         if (full_path.back() != '/') {
@@ -107,27 +116,95 @@ int PluginManager::loadFromDirectory(const std::string& plugin_dir,
     return count;
 }
 
-// ---------------------------------------------------------------------------
-// unloadAll
-// ---------------------------------------------------------------------------
+PluginReloadResult PluginManager::reloadFromDirectory(
+    const std::string& plugin_dir,
+    ToolManager& tool_manager,
+    const std::string& config_path) {
+    PluginReloadResult result;
+    result.unloaded = static_cast<int>(plugins_.size());
 
-void PluginManager::unloadAll() {
-    for (auto* handle : handles_) {
-        if (handle) {
-            ::dlclose(handle);
+    LOG_INFO("Reloading plugins from '{}' (unloading {} plugin(s))",
+             plugin_dir, result.unloaded);
+    unloadAll(tool_manager);
+
+    result.loaded = loadFromDirectory(plugin_dir, tool_manager, config_path);
+
+    DIR* dir = ::opendir(plugin_dir.c_str());
+    if (dir) {
+        int failed = 0;
+        struct dirent* entry;
+        while ((entry = ::readdir(dir)) != nullptr) {
+            if (!isPluginSoFile(entry->d_name)) continue;
+            ++failed;
         }
+        ::closedir(dir);
+        result.failed = failed - result.loaded;
+        if (result.failed < 0) result.failed = 0;
     }
-    handles_.clear();
+
+    LOG_INFO("Plugin reload complete: unloaded={}, loaded={}, failed={}, "
+             "tools={}",
+             result.unloaded, result.loaded, result.failed, tool_manager.size());
+    return result;
 }
 
-// ---------------------------------------------------------------------------
-// loadPlugin
-// ---------------------------------------------------------------------------
+bool PluginManager::reloadPlugin(const std::string& so_path,
+                                  ToolManager& tool_manager,
+                                  const std::string& config_path) {
+    auto it = std::find_if(plugins_.begin(), plugins_.end(),
+        [&](const LoadedPlugin& p) { return p.path == so_path; });
+
+    if (it != plugins_.end()) {
+        LOG_INFO("Reloading plugin: {}", so_path);
+        unloadPlugin(*it, tool_manager);
+        plugins_.erase(it);
+    } else {
+        LOG_INFO("Loading new plugin: {}", so_path);
+    }
+
+    return loadPlugin(so_path, tool_manager, config_path);
+}
+
+void PluginManager::unloadPlugin(LoadedPlugin& plugin,
+                                  ToolManager& tool_manager) {
+    for (const auto& tool_name : plugin.tool_names) {
+        tool_manager.unregisterTool(tool_name);
+    }
+    if (plugin.handle) {
+        ::dlclose(plugin.handle);
+        plugin.handle = nullptr;
+    }
+    LOG_INFO("Plugin unloaded: {} ({})", plugin.name, plugin.path);
+}
+
+void PluginManager::unloadAll(ToolManager& tool_manager) {
+    for (auto& plugin : plugins_) {
+        unloadPlugin(plugin, tool_manager);
+    }
+    plugins_.clear();
+}
+
+void PluginManager::unloadHandlesOnly() {
+    for (auto& plugin : plugins_) {
+        if (plugin.handle) {
+            ::dlclose(plugin.handle);
+            plugin.handle = nullptr;
+        }
+    }
+    plugins_.clear();
+}
 
 bool PluginManager::loadPlugin(const std::string& so_path,
                                 ToolManager& tool_manager,
                                 const std::string& config_path) {
-    const size_t tools_before = tool_manager.size();
+    for (const auto& plugin : plugins_) {
+        if (plugin.path == so_path) {
+            LOG_WARN("Plugin already loaded, skip: {}", so_path);
+            return false;
+        }
+    }
+
+    const auto before_names = toolNameSet(tool_manager);
 
     ::dlerror();
     void* handle = ::dlopen(so_path.c_str(), RTLD_NOW);
@@ -143,7 +220,6 @@ bool PluginManager::loadPlugin(const std::string& so_path,
             ::dlsym(handle, "mcp_plugin_set_config_path"));
         const char* sym_err = ::dlerror();
         if (sym_err) {
-            // 可选符号，仅 debug 记录
             LOG_DEBUG("Plugin '{}': mcp_plugin_set_config_path not available",
                       so_path);
         } else if (set_config_fn) {
@@ -170,16 +246,26 @@ bool PluginManager::loadPlugin(const std::string& so_path,
         return false;
     }
 
-    handles_.push_back(handle);
+    LoadedPlugin plugin;
+    plugin.handle = handle;
+    plugin.path = so_path;
+    plugin.name = pluginName(handle, so_path);
 
-    const std::string name = pluginName(handle, so_path);
-    const size_t tools_added = tool_manager.size() - tools_before;
-    if (tools_added > 0) {
+    for (const auto& info : tool_manager.listTools()) {
+        if (!before_names.count(info.name)) {
+            plugin.tool_names.push_back(info.name);
+        }
+    }
+
+    plugins_.push_back(std::move(plugin));
+
+    const auto& loaded = plugins_.back();
+    if (!loaded.tool_names.empty()) {
         LOG_INFO("Plugin loaded: {} ({}, {} tool(s) registered)",
-                 name, so_path, tools_added);
+                 loaded.name, so_path, loaded.tool_names.size());
     } else {
         LOG_INFO("Plugin loaded: {} ({}, no tools registered — disabled or empty)",
-                 name, so_path);
+                 loaded.name, so_path);
     }
 
     return true;

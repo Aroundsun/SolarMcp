@@ -49,10 +49,13 @@ public:
     /// 无已注册工具时返回 true。
     bool empty() const noexcept { return tools_.empty(); }
 
-    /// 释放所有已注册工具。
-    /// 须在 PluginManager::unloadAll() / dlclose 之前调用，
-    /// 否则插件分配的 Tool 可能在 .so 卸载后被析构。
+    /// 释放所有已注册工具（含内置与插件）。
+    /// 进程退出时可用；热重载请用 unregisterTool / PluginManager::unloadAll。
     void clear();
+
+    /// 按名称注销并销毁单个工具。
+    /// @return 工具存在并已移除时返回 true
+    bool unregisterTool(const std::string& name);
 
 private:
     std::unordered_map<std::string, std::unique_ptr<Tool>> tools_;

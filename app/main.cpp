@@ -50,9 +50,13 @@ mcp::LogLevel parseLogLevel(const std::string& level_str) {
     return mcp::LogLevel::INFO;
 }
 
-/// 在 Dispatcher 上注册 MCP 内置方法（tools/list、tools/call）。
+/// 在 Dispatcher 上注册 MCP 内置方法（tools/list、tools/call、plugins/reload）。
 void registerMcpMethods(mcp::Dispatcher& dispatcher,
-                         mcp::ToolManager& tool_manager) {
+                         mcp::ToolManager& tool_manager,
+                         mcp::PluginManager& plugin_manager,
+                         const std::string& plugin_dir,
+                         const std::string& config_path,
+                         bool allow_plugin_reload) {
     // tools/list — 返回所有已注册工具的元数据
     dispatcher.registerMethod("tools/list",
         [&tool_manager](const nlohmann::json& /*params*/) -> nlohmann::json {
@@ -94,6 +98,21 @@ void registerMcpMethods(mcp::Dispatcher& dispatcher,
 
             return result.content;
         });
+
+    if (allow_plugin_reload) {
+        dispatcher.registerMethod("plugins/reload",
+            [&plugin_manager, &tool_manager, &plugin_dir, &config_path](
+                const nlohmann::json& /*params*/) -> nlohmann::json {
+                auto result = plugin_manager.reloadFromDirectory(
+                    plugin_dir, tool_manager, config_path);
+                return {
+                    {"unloaded", result.unloaded},
+                    {"loaded", result.loaded},
+                    {"failed", result.failed},
+                    {"tools", tool_manager.size()}
+                };
+            });
+    }
 }
 
 } // anonymous namespace
@@ -156,7 +175,7 @@ int main(int argc, char* argv[]) {
     }
 
     // --- 7. 加载插件 ---
-    std::string plugin_dir = config.getString("plugins.directory", "./plugins/");
+    std::string plugin_dir = config.getString("plugins.directory", "./plugins/lib/");
     bool autoload = config.getBool("plugins.autoload", true);
 
     if (autoload) {
@@ -173,7 +192,9 @@ int main(int argc, char* argv[]) {
 
     // --- 8. 设置分发器 ---
     mcp::Dispatcher dispatcher;
-    registerMcpMethods(dispatcher, tool_manager);
+    bool allow_plugin_reload = config.getBool("plugins.allow_reload", true);
+    registerMcpMethods(dispatcher, tool_manager, plugin_manager,
+                        plugin_dir, config_path, allow_plugin_reload);
 
     LOG_INFO("Dispatcher: {} method(s) registered", dispatcher.methodCount());
 
@@ -228,8 +249,7 @@ int main(int argc, char* argv[]) {
     // --- 12. 优雅关闭 ---
     LOG_INFO("Shutting down...");
     server.stop();
-    tool_manager.clear();
-    plugin_manager.unloadAll();
+    plugin_manager.unloadAll(tool_manager);
     thread_pool->shutdown();
     mcp::Logger::getInstance().shutdown();
 

@@ -1,4 +1,6 @@
 # 为插件添加共享库
+set(PLUGIN_LIB_DIR ${CMAKE_SOURCE_DIR}/plugins/lib)
+
 add_library(read_file_plugin MODULE
     filesystem/read_file_plugin.cpp
 )
@@ -12,7 +14,7 @@ target_link_libraries(read_file_plugin PRIVATE
 set_target_properties(read_file_plugin PROPERTIES
     PREFIX ""
     SUFFIX ".so"
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins/lib
 )
 
 # Shell Tool 插件
@@ -32,15 +34,16 @@ target_link_libraries(shell_plugin PRIVATE
 set_target_properties(shell_plugin PROPERTIES
     PREFIX ""
     SUFFIX ".so"
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/plugins/lib
 )
 
-# 构建后将 .so 复制到 plugins/，与 config.yaml 中 plugins.directory 一致
+# 构建后将 .so 复制到 plugins/lib/，与 config.yaml 中 plugins.directory 一致
 foreach(_plugin read_file_plugin shell_plugin)
     add_custom_command(TARGET ${_plugin} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PLUGIN_LIB_DIR}
         COMMAND ${CMAKE_COMMAND} -E copy
             $<TARGET_FILE:${_plugin}>
-            ${CMAKE_SOURCE_DIR}/plugins/
-        COMMENT "Copying ${_plugin} to plugins/"
+            ${PLUGIN_LIB_DIR}/
+        COMMENT "Copying ${_plugin} to plugins/lib/"
     )
 endforeach()

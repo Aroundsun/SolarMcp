@@ -24,8 +24,8 @@ out/
 logs/
 *.log
 
-# Plugin binaries (built locally)
-plugins/*.so
+# Plugin binaries (built locally, under plugins/lib/)
+plugins/lib/*.so
 
 # macOS
 .DS_Store

@@ -13,7 +13,6 @@ namespace {
 
 namespace fs = std::filesystem;
 
-// 由 CMake 注入，指向 build/plugins/
 #ifndef SOLARMCP_PLUGIN_DIR
 #define SOLARMCP_PLUGIN_DIR "plugins"
 #endif
@@ -31,20 +30,14 @@ bool allPluginsAvailable() {
            fs::exists(fs::path(pluginDir()) / "read_file_plugin.so");
 }
 
-// PluginManager 须先于 ToolManager：析构时先销毁 Tool，再 dlclose .so
 struct PluginFixture {
     mcp::PluginManager pm;
     mcp::ToolManager tm;
 
     void shutdown() {
-        tm.clear();
-        pm.unloadAll();
+        pm.unloadAll(tm);
     }
 };
-
-// ---------------------------------------------------------------------------
-// 基础行为（不依赖真实 .so）
-// ---------------------------------------------------------------------------
 
 TEST(PluginManagerTest, LoadFromEmptyDirectory) {
     PluginFixture fx;
@@ -52,7 +45,7 @@ TEST(PluginManagerTest, LoadFromEmptyDirectory) {
     int count = fx.pm.loadFromDirectory("/tmp", fx.tm);
     EXPECT_GE(count, 0);
 
-    fx.pm.unloadAll();
+    fx.pm.unloadAll(fx.tm);
     EXPECT_EQ(fx.pm.loadedCount(), 0u);
 }
 
@@ -65,10 +58,9 @@ TEST(PluginManagerTest, LoadFromNonexistentDirectory) {
 }
 
 TEST(PluginManagerTest, UnloadAllOnEmptyManager) {
-    mcp::PluginManager pm;
-    EXPECT_EQ(pm.loadedCount(), 0u);
-    pm.unloadAll();
-    EXPECT_EQ(pm.loadedCount(), 0u);
+    PluginFixture fx;
+    fx.pm.unloadAll(fx.tm);
+    EXPECT_EQ(fx.pm.loadedCount(), 0u);
 }
 
 TEST(PluginManagerTest, LoadedCountInitial) {
@@ -94,10 +86,6 @@ TEST(PluginManagerTest, IgnoresInvalidSharedLibrary) {
     fs::remove_all(dir);
 }
 
-// ---------------------------------------------------------------------------
-// 真实 .so 加载（需先构建 shell_plugin / read_file_plugin）
-// ---------------------------------------------------------------------------
-
 TEST(PluginManagerTest, LoadShellPlugin) {
     if (!shellPluginAvailable()) {
         GTEST_SKIP() << "shell_plugin.so not found in " << pluginDir();
@@ -106,7 +94,6 @@ TEST(PluginManagerTest, LoadShellPlugin) {
     PluginFixture fx;
     const std::string shell_so = (fs::path(pluginDir()) / "shell_plugin.so").string();
 
-    // 仅含一个有效 .so 的临时目录，避免其它插件干扰
     const fs::path dir =
         fs::temp_directory_path() / "solarmcp_plugin_shell_only";
     fs::create_directories(dir);
@@ -153,7 +140,6 @@ TEST(PluginManagerTest, ReadFilePluginSkippedWhenDuplicate) {
     ASSERT_TRUE(fx.tm.registerTool(std::make_unique<mcp::ReadFileTool>()));
 
     int count = fx.pm.loadFromDirectory(pluginDir(), fx.tm, "");
-    // read_file 与内置重复注册失败，shell 应成功
     EXPECT_EQ(count, 1);
     EXPECT_EQ(fx.pm.loadedCount(), 1u);
     EXPECT_NE(fx.tm.getTool("shell"), nullptr);
@@ -182,7 +168,6 @@ TEST(PluginManagerTest, ShellDisabledViaConfig) {
 
     PluginFixture fx;
     int count = fx.pm.loadFromDirectory(dir.string(), fx.tm, cfg.string());
-    // shell 插件加载成功但未注册工具（register 返回 0）
     EXPECT_EQ(count, 1);
     EXPECT_EQ(fx.pm.loadedCount(), 1u);
     EXPECT_EQ(fx.tm.getTool("shell"), nullptr);
@@ -215,7 +200,6 @@ TEST(PluginManagerTest, ShellPluginReadsConfigPath) {
 
     auto* shell = fx.tm.getTool("shell");
     ASSERT_NE(shell, nullptr);
-  // inputSchema 中应反映配置的 15s 默认超时
     auto schema = shell->inputSchema();
     const std::string desc =
         schema["properties"]["timeout_seconds"]["description"].get<std::string>();
@@ -245,6 +229,72 @@ TEST(PluginManagerTest, SafeShutdownAfterLoad) {
     }
 
     fs::remove_all(dir);
+}
+
+TEST(PluginManagerTest, ReloadFromDirectory) {
+    if (!shellPluginAvailable()) {
+        GTEST_SKIP() << "shell_plugin.so not found in " << pluginDir();
+    }
+
+    const fs::path dir =
+        fs::temp_directory_path() / "solarmcp_plugin_reload";
+    fs::create_directories(dir);
+    fs::copy_file(fs::path(pluginDir()) / "shell_plugin.so",
+                  dir / "shell_plugin.so",
+                  fs::copy_options::overwrite_existing);
+
+    PluginFixture fx;
+    ASSERT_TRUE(fx.tm.registerTool(std::make_unique<mcp::ReadFileTool>()));
+    ASSERT_EQ(fx.pm.loadFromDirectory(dir.string(), fx.tm, ""), 1);
+    ASSERT_NE(fx.tm.getTool("shell"), nullptr);
+    EXPECT_EQ(fx.tm.size(), 2u);
+
+    auto result = fx.pm.reloadFromDirectory(dir.string(), fx.tm, "");
+    EXPECT_EQ(result.unloaded, 1);
+    EXPECT_EQ(result.loaded, 1);
+    EXPECT_EQ(fx.pm.loadedCount(), 1u);
+    EXPECT_NE(fx.tm.getTool("shell"), nullptr);
+    EXPECT_NE(fx.tm.getTool("read_file"), nullptr);
+    EXPECT_EQ(fx.tm.size(), 2u);
+
+    mcp::Context ctx;
+    auto call = fx.tm.callTool("shell", {{"command", "echo reloaded"}}, ctx);
+    ASSERT_FALSE(call.is_error);
+    EXPECT_NE(call.content["stdout"].get<std::string>().find("reloaded"),
+              std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST(PluginManagerTest, ReloadSinglePlugin) {
+    if (!shellPluginAvailable()) {
+        GTEST_SKIP() << "shell_plugin.so not found in " << pluginDir();
+    }
+
+    const fs::path dir =
+        fs::temp_directory_path() / "solarmcp_plugin_single_reload";
+    fs::create_directories(dir);
+    const std::string shell_so = (dir / "shell_plugin.so").string();
+    fs::copy_file(fs::path(pluginDir()) / "shell_plugin.so", shell_so,
+                  fs::copy_options::overwrite_existing);
+
+    PluginFixture fx;
+    ASSERT_TRUE(fx.pm.reloadPlugin(shell_so, fx.tm, ""));
+    ASSERT_NE(fx.tm.getTool("shell"), nullptr);
+
+    ASSERT_TRUE(fx.pm.reloadPlugin(shell_so, fx.tm, ""));
+    ASSERT_NE(fx.tm.getTool("shell"), nullptr);
+    EXPECT_EQ(fx.pm.loadedCount(), 1u);
+
+    fs::remove_all(dir);
+}
+
+TEST(PluginManagerTest, UnregisterToolOnly) {
+    PluginFixture fx;
+    ASSERT_TRUE(fx.tm.registerTool(std::make_unique<mcp::ReadFileTool>()));
+    EXPECT_TRUE(fx.tm.unregisterTool("read_file"));
+    EXPECT_FALSE(fx.tm.unregisterTool("read_file"));
+    EXPECT_EQ(fx.tm.size(), 0u);
 }
 
 } // anonymous namespace
