@@ -1,0 +1,435 @@
+classDiagram
+    direction TB
+
+    class NonCopyable {
+        <<abstract>>
+        +NonCopyable()
+        +~NonCopyable()
+        #NonCopyable(const NonCopyable&) = delete
+        #NonCopyable& operator=(const NonCopyable&) = delete
+    }
+
+    class Result {
+        +json content
+        +bool isError
+        +optional~ErrorInfo~ error
+        +static ok(json) Result$
+        +static err(int, string) Result$
+    }
+
+    class Context {
+        +string requestId
+        +int timeoutMs
+        +bool cancelled
+    }
+
+    class ErrorInfo {
+        +int code
+        +string message
+    }
+
+    class LogLevel {
+        <<enumeration>>
+        TRACE
+        DEBUG
+        INFO
+        WARN
+        ERROR
+        FATAL
+    }
+
+    class Logger {
+        -Logger* instance_
+        -AsyncLogger* asyncLogger_
+        -LogLevel level_
+        +getInstance() Logger&$
+        +init(config) void
+        +log(level, fmt, args...) void
+        +debug(fmt, args...) void
+        +info(fmt, args...) void
+        +warn(fmt, args...) void
+        +error(fmt, args...) void
+        +fatal(fmt, args...) void
+        +setLevel(LogLevel) void
+        +setFile(path) void
+        +shutdown() void
+    }
+
+    class AsyncLogger {
+        -vector~char~ currentBuffer_
+        -vector~char~ nextBuffer_
+        -thread backendThread_
+        -mutex mutex_
+        -condition_variable cond_
+        -atomic~bool~ running_
+        -ofstream fileStream_
+        -size_t maxFileSize_
+        +append(msg) void
+        +start() void
+        +stop() void
+        -backendRoutine() void
+        -rotateFile() void
+    }
+
+    class ConfigManager {
+        -ConfigManager* instance_
+        -json data_
+        -string filePath_
+        +getInstance() ConfigManager&$
+        +loadFile(path) bool
+        +loadYaml(path) bool
+        +loadJson(path) bool
+        +getString(key, default) string
+        +getInt(key, default) int
+        +getBool(key, default) bool
+        +getStringArray(key) vector~string~
+        +get(key) const json&
+    }
+
+    class ThreadPool {
+        -vector~thread~ workers_
+        -queue~function~void()~~ tasks_
+        -mutex mutex_
+        -condition_variable cond_
+        -atomic~bool~ stop_
+        +ThreadPool(numThreads)
+        +~ThreadPool()
+        +enqueue(F&&, Args...) future~result_t~
+        +shutdown() void
+        +size() size_t
+        -workerLoop() void
+    }
+
+    class Buffer {
+        -vector~char~ buffer_
+        -size_t readIndex_
+        -size_t writeIndex_
+        +append(data, len) void
+        +retrieve(len) void
+        +retrieveAll() string
+        +retrieveAsString() string
+        +readableBytes() size_t
+        +writableBytes() size_t
+        +prependableBytes() size_t
+        +prepend(data, len) void
+        +peek() const char*
+        +findCRLF() int
+        +ensureWritable(len) void
+        +hasReadable() bool
+    }
+
+    class InetAddress {
+        -sockaddr_in addr_
+        +InetAddress(port, ip)
+        +InetAddress(sockaddr_in)
+        +toIpPort() string
+        +toIp() string
+        +port() uint16_t
+        +sockAddr() const sockaddr*
+        +sockAddrLen() socklen_t
+    }
+
+    class Socket {
+        -int fd_
+        -bool owner_
+        +Socket(fd)
+        +~Socket()
+        +fd() int
+        +bind(InetAddress) void
+        +listen() void
+        +accept(InetAddress*) int
+        +setNonBlock() void
+        +setReuseAddr(bool) void
+        +setTcpNoDelay(bool) void
+        +shutdownWrite() void
+        +close() void
+        +static createNonBlock() Socket$
+    }
+
+    class Transport {
+        <<abstract>>
+        +~Transport()
+        +listen() bool*
+        +accept() int*
+        +close() void*
+        +type() string*
+    }
+
+    class TcpTransport {
+        -Socket listenSocket_
+        -InetAddress addr_
+        +listen() bool
+        +accept() int
+        +close() void
+        +type() string
+    }
+
+    class EventLoop {
+        -unique_ptr~Poller~ poller_
+        -map~int,Channel*~ channels_
+        -atomic~bool~ looping_
+        -atomic~bool~ quit_
+        -thread~id threadId_
+        -vector~function~void()~~ pendingFunctors_
+        -mutex mutex_
+        +loop() void
+        +quit() void
+        +updateChannel(Channel*) void
+        +removeChannel(Channel*) void
+        +hasChannel(Channel*) bool
+        +runInLoop(function~void()~) void
+        +queueInLoop(function~void()~) void
+        +isInLoopThread() bool
+        +assertInLoopThread() void
+        -doPendingFunctors() void
+    }
+
+    class Channel {
+        -int fd_
+        -uint32_t events_
+        -uint32_t revents_
+        -EventLoop* loop_
+        -function~void()~ readCallback_
+        -function~void()~ writeCallback_
+        -function~void()~ closeCallback_
+        -function~void()~ errorCallback_
+        +setReadCallback(cb) void
+        +setWriteCallback(cb) void
+        +setCloseCallback(cb) void
+        +setErrorCallback(cb) void
+        +enableReading() void
+        +disableReading() void
+        +enableWriting() void
+        +disableWriting() void
+        +disableAll() void
+        +handleEvent() void
+        +fd() int
+        +events() uint32_t
+        +setRevents(uint32_t) void
+        +isNoneEvent() bool
+        +isWriting() bool
+    }
+
+    class Poller {
+        <<abstract>>
+        +~Poller()
+        +poll(timeoutMs, activeChannels) Timestamp*
+        +updateChannel(Channel*) void*
+        +removeChannel(Channel*) void*
+        +static newDefaultPoller() Poller*$
+    }
+
+    class EpollPoller {
+        -int epollfd_
+        -vector~epoll_event~ events_
+        +EpollPoller()
+        +~EpollPoller()
+        +poll(timeoutMs, activeChannels) Timestamp
+        +updateChannel(Channel*) void
+        +removeChannel(Channel*) void
+        -update(int op, Channel*) void
+    }
+
+    class Codec {
+        <<abstract>>
+        +~Codec()
+        +decode(Buffer*) optional~Message~*
+        +encode(Response) string*
+    }
+
+    class JsonRpcCodec {
+        +decode(Buffer*) optional~Message~
+        +encode(Response) string
+        -parseContentLength(Buffer*) optional~int~
+        -validateRequest(json) bool
+    }
+
+    class Message {
+        +variant~Request,Response,Notification~ payload
+        +isRequest() bool
+        +isResponse() bool
+        +asRequest() Request&
+        +asResponse() Response&
+    }
+
+    class Request {
+        +string jsonrpc
+        +string method
+        +json params
+        +variant~int,string,nullptr_t~ id
+        +static fromJson(json) Request$
+        +toJson() json
+        +isNotification() bool
+    }
+
+    class Response {
+        +string jsonrpc
+        +json result
+        +variant~int,string,nullptr_t~ id
+        +optional~ErrorInfo~ error
+        +static fromJson(json) Response$
+        +toJson() json
+        +isError() bool
+        +static success(id, result) Response$
+        +static error(id, code, msg) Response$
+    }
+
+    class Dispatcher {
+        -unordered_map~string,Handler~ handlers_
+        +registerMethod(method, handler) void
+        +dispatch(Request) Response
+        +hasMethod(method) bool
+    }
+
+    class TcpServer {
+        -EventLoop* mainLoop_
+        -unique_ptr~Transport~ transport_
+        -map~string,shared_ptr~TcpConnection~~ connections_
+        -shared_ptr~ThreadPool~ threadPool_
+        -unique_ptr~Dispatcher~ dispatcher_
+        -function~void(TcpConnectionPtr)~ connectionCallback_
+        -function~void(TcpConnectionPtr,Message)~ messageCallback_
+        +TcpServer(loop, addr, name)
+        +~TcpServer()
+        +start() void
+        +stop() void
+        +setDispatcher(Dispatcher*) void
+        +setThreadPool(shared_ptr~ThreadPool~) void
+        +setConnectionCallback(cb) void
+        +setMessageCallback(cb) void
+        -onNewConnection(fd, peerAddr) void
+        -onMessage(conn, msg) void
+        -removeConnection(conn) void
+    }
+
+    class TcpConnection {
+        -EventLoop* loop_
+        -unique_ptr~Socket~ socket_
+        -unique_ptr~Channel~ channel_
+        -Buffer inputBuf_
+        -Buffer outputBuf_
+        -unique_ptr~Codec~ codec_
+        -ConnState state_
+        -InetAddress localAddr_
+        -InetAddress peerAddr_
+        +TcpConnection(loop, fd, localAddr, peerAddr)
+        +~TcpConnection()
+        +send(Response) void
+        +sendRaw(string) void
+        +shutdown() void
+        +forceClose() void
+        +setMessageCallback(cb) void
+        +setCloseCallback(cb) void
+        +setCodec(unique_ptr~Codec~) void
+        +name() string
+        -handleRead() void
+        -handleWrite() void
+        -handleClose() void
+        -handleError() void
+        -sendInLoop(string) void
+    }
+
+    class Tool {
+        <<abstract>>
+        +~Tool()
+        +name() string*
+        +description() string*
+        +inputSchema() json*
+        +execute(params, ctx) Result*
+    }
+
+    class ReadFileTool {
+        -size_t maxSize_
+        -vector~string~ allowedPaths_
+        +ReadFileTool(maxSize, allowedPaths)
+        +name() string
+        +description() string
+        +inputSchema() json
+        +execute(params, ctx) Result
+        -validatePath(path) bool
+    }
+
+    class ToolManager {
+        -unordered_map~string,unique_ptr~Tool~~ tools_
+        +registerTool(unique_ptr~Tool~) void
+        +getTool(name) Tool*
+        +listTools() vector~ToolInfo~
+        +callTool(name, params, ctx) Result
+        +size() size_t
+    }
+
+    class ToolInfo {
+        +string name
+        +string description
+        +json inputSchema
+    }
+
+    class PluginManager {
+        -string pluginDir_
+        -vector~void*~ handles_
+        +loadFromDirectory(dir) vector~Tool*~
+        +unloadAll() void
+        -loadPlugin(path) void*
+        -scanDirectory(dir) vector~string~
+    }
+
+    class TimerWheel {
+        -vector~list~TimerEntry~~ slots_
+        -int currentSlot_
+        -int tickMs_
+        -int slotCount_
+        -atomic~uint64_t~ nextId_
+        +TimerWheel(tickMs, slotCount)
+        +addTimer(timeoutMs, callback) uint64_t
+        +cancelTimer(timerId) void
+        +tick() void
+        +start() void
+        +stop() void
+    }
+
+    class TimerEntry {
+        +uint64_t id
+        +int rotations
+        +function~void()~ callback
+    }
+
+    NonCopyable <|-- Logger
+    NonCopyable <|-- ConfigManager
+    NonCopyable <|-- EventLoop
+    NonCopyable <|-- TcpServer
+    Result *-- ErrorInfo
+    Logger --> AsyncLogger : owns
+    Logger --> LogLevel
+    Transport <|-- TcpTransport
+    TcpTransport --> Socket
+    TcpTransport --> InetAddress
+    Poller <|-- EpollPoller
+    EpollPoller --> Channel : manages
+    EventLoop --> Poller : owns
+    EventLoop --> Channel : manages
+    Channel --> EventLoop : belongs to
+    TcpServer --> EventLoop : runs on
+    TcpServer --> TcpConnection : manages
+    TcpServer --> ThreadPool : uses
+    TcpServer --> Dispatcher : owns
+    TcpServer --> Transport : owns
+    TcpConnection --> EventLoop : runs on
+    TcpConnection --> Socket : owns
+    TcpConnection --> Channel : owns
+    TcpConnection --> Buffer : owns (x2)
+    TcpConnection --> Codec : uses
+    Codec <|-- JsonRpcCodec
+    JsonRpcCodec ..> Message : produces
+    Message --> Request
+    Message --> Response
+    Dispatcher --> Request : receives
+    Dispatcher --> Response : returns
+    Dispatcher --> ToolManager : delegates
+    ToolManager --> Tool : manages
+    Tool <|-- ReadFileTool
+    ReadFileTool --> Result : returns
+    PluginManager --> ToolManager : registers to
+    PluginManager ..> Tool : creates via dlsym
+    TimerWheel *-- TimerEntry
+    Tool --> Result : returns
+    Tool --> Context : receives

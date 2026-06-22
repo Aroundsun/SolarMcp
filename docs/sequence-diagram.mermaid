@@ -1,0 +1,141 @@
+sequenceDiagram
+    autonumber
+
+    participant Client
+    participant TcpServer
+    participant TcpConnection
+    participant EventLoop
+    participant EpollPoller
+    participant Buffer as Buffer(inputBuf)
+    participant Codec as JsonRpcCodec
+    participant Dispatcher
+    participant ToolManager
+    participant Tool as ReadFileTool
+    participant ThreadPool
+
+    Note over Client,Tool: ========== 连接建立阶段 ==========
+
+    Client->>TcpServer: TCP SYN → connect()
+    TcpServer->>TcpServer: acceptor_.accept()
+    TcpServer->>TcpConnection: new TcpConnection(loop, fd, localAddr, peerAddr)
+    TcpConnection->>TcpConnection: socket_ = Socket(fd)
+    TcpConnection->>TcpConnection: channel_ = Channel(loop, fd)
+    TcpConnection->>EventLoop: channel_->enableReading()
+    EventLoop->>EpollPoller: updateChannel(channel_)
+    EpollPoller->>EpollPoller: epoll_ctl(EPOLL_CTL_ADD, fd, EPOLLIN|EPOLLET)
+
+    Note over Client,Tool: ========== 数据到达阶段（EPOLLIN 触发） ==========
+
+    Client->>TcpServer: 发送 JSON-RPC Request (TCP send)
+    Note right of Client: Content-Length: 128\r\n\r\n{...}
+    EpollPoller->>EventLoop: epoll_wait() 返回 active channels
+    EventLoop->>EventLoop: 遍历 activeChannels
+    EventLoop->>Channel: channel->handleEvent()
+    Channel->>TcpConnection: readCallback_()
+    TcpConnection->>TcpConnection: handleRead()
+
+    Note over TcpConnection,Buffer: 读取原始数据到 inputBuf
+    TcpConnection->>Buffer: inputBuf_.readFd(fd)
+    Buffer-->>TcpConnection: 读取 n 字节
+
+    Note over TcpConnection,Codec: 尝试解码（处理粘包/半包）
+    TcpConnection->>Codec: codec_->decode(&inputBuf_)
+    Codec->>Buffer: findCRLF() 查找 Content-Length 头
+    Buffer-->>Codec: 返回 Content-Length 值 = 128
+    Codec->>Buffer: 检查 readableBytes() >= 128
+    alt 半包：数据不完整
+        Codec-->>TcpConnection: return std::nullopt
+        Note over TcpConnection: 等待更多数据，继续 epoll_wait
+    else 数据完整
+        Codec->>Buffer: retrieve(128 + headerLen)
+        Codec->>Codec: nlohmann::json::parse(payload)
+        Codec->>Codec: 验证 JSON-RPC 2.0 格式
+        Codec->>Codec: 构造 Request 结构体
+        Codec-->>TcpConnection: return Message(Request)
+    end
+
+    Note over TcpConnection,Dispatcher: 分发消息
+
+    TcpConnection->>TcpServer: messageCallback_(conn, message)
+    TcpServer->>TcpServer: onMessage(conn, message)
+
+    alt 方法 == "tools/list"
+        TcpServer->>Dispatcher: dispatch(request)
+        Dispatcher->>ToolManager: listTools()
+        ToolManager-->>Dispatcher: vector<ToolInfo>
+        Dispatcher->>Dispatcher: 构造 Response (result = tools list)
+    else 方法 == "tools/call"
+        TcpServer->>Dispatcher: dispatch(request)
+        Dispatcher->>Dispatcher: 从 params 提取 tool name + arguments
+        Dispatcher->>ToolManager: getTool("read_file")
+        ToolManager-->>Dispatcher: Tool* (ReadFileTool instance)
+
+        opt P1: 异步执行（ThreadPool）
+            Dispatcher->>ThreadPool: enqueue(Tool::execute, params, ctx)
+            ThreadPool->>Tool: execute(params, ctx)
+        end
+
+        P0: 同步执行
+        Dispatcher->>Tool: execute(params, context)
+        Tool->>Tool: validatePath(params["path"])
+        alt path 合法
+            Tool->>Tool: std::ifstream 读取文件
+            Tool-->>Dispatcher: Result::ok(fileContent)
+        else path 非法
+            Tool-->>Dispatcher: Result::err("Path not allowed")
+        else 文件不存在
+            Tool-->>Dispatcher: Result::err("File not found")
+        end
+
+        Dispatcher->>Dispatcher: 构造 Response
+    else 方法不存在
+        Dispatcher->>Dispatcher: 构造 Error Response (-32601 Method not found)
+    end
+
+    Dispatcher-->>TcpServer: Response
+
+    Note over TcpConnection,Codec: 编码响应
+
+    TcpServer->>TcpConnection: send(response)
+    TcpConnection->>Codec: codec_->encode(response)
+    Codec->>Codec: response.toJson().dump()
+    Codec->>Codec: 拼接 "Content-Length: N\r\n\r\n" + json
+    Codec-->>TcpConnection: string (完整响应)
+
+    Note over TcpConnection,Buffer: 写入 outputBuf 并注册写事件
+
+    TcpConnection->>Buffer: outputBuf_.append(encodedResponse)
+    TcpConnection->>EventLoop: channel_->enableWriting()
+    EventLoop->>EpollPoller: epoll_ctl(EPOLL_CTL_MOD, fd, EPOLLIN|EPOLLOUT|EPOLLET)
+
+    Note over Client,Tool: ========== 数据发送阶段（EPOLLOUT 触发） ==========
+
+    EpollPoller->>EventLoop: epoll_wait() 返回 EPOLLOUT
+    EventLoop->>Channel: channel->handleEvent()
+    Channel->>TcpConnection: writeCallback_()
+    TcpConnection->>TcpConnection: handleWrite()
+    TcpConnection->>Buffer: outputBuf_.writeFd(fd)
+    Note over Buffer: send() 发送 n 字节
+    alt 全部发送完毕
+        TcpConnection->>EventLoop: channel_->disableWriting()
+        TcpConnection->>Buffer: outputBuf_.retrieveAll()
+    else 部分发送
+        Note over TcpConnection: 保留剩余数据，等待下次 EPOLLOUT
+    end
+
+    Client->>Client: 收到 TCP Response
+    Note right of Client: Content-Length: ...\r\n\r\n{"jsonrpc":"2.0","result":{...},"id":1}
+
+    Note over Client,Tool: ========== 连接关闭阶段 ==========
+
+    opt 客户端主动断开
+        Client->>TcpServer: TCP FIN
+        EpollPoller->>EventLoop: epoll_wait() 返回 EPOLLHUP
+        EventLoop->>Channel: channel->handleEvent()
+        Channel->>TcpConnection: closeCallback_()
+        TcpConnection->>TcpConnection: handleClose()
+        TcpConnection->>EventLoop: channel_->disableAll()
+        TcpConnection->>EventLoop: loop_->removeChannel(channel_)
+        TcpConnection->>Socket: socket_.close()
+        TcpServer->>TcpServer: connections_.erase(connName)
+    end
