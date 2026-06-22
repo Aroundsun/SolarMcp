@@ -2,6 +2,7 @@
 
 #include "mcp/common/noncopyable.h"
 
+#include <sys/epoll.h>
 #include <functional>
 #include <memory>
 
@@ -68,10 +69,11 @@ public:
     /// 未监控任何事件时返回 true。
     bool isNoneEvent() const noexcept { return events_ == kNoneEvent; }
 
-    // 事件标志
+
+    // 事件标志（对应 Linux epoll 常量）
     static constexpr uint32_t kNoneEvent  = 0;
-    static constexpr uint32_t kReadEvent  = 1;  // EPOLLIN
-    static constexpr uint32_t kWriteEvent = 2;  // EPOLLOUT (not EPOLLIN|EPOLLOUT for edge trigger)
+    static constexpr uint32_t kReadEvent  = EPOLLIN | EPOLLPRI;
+    static constexpr uint32_t kWriteEvent = EPOLLOUT;
 
 private:
     void update();

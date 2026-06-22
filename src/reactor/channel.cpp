@@ -57,22 +57,22 @@ void Channel::handleEvent() {
 // ---------------------------------------------------------------------------
 
 void Channel::enableReading() {
-    events_ |= EPOLLIN | EPOLLPRI | EPOLLET;
+    events_ |= kReadEvent | EPOLLET;
     update();
 }
 
 void Channel::enableWriting() {
-    events_ |= EPOLLOUT | EPOLLET;
+    events_ |= kWriteEvent | EPOLLET;
     update();
 }
 
 void Channel::disableReading() {
-    events_ &= ~static_cast<uint32_t>(EPOLLIN | EPOLLPRI);
+    events_ &= ~static_cast<uint32_t>(kReadEvent);
     update();
 }
 
 void Channel::disableWriting() {
-    events_ &= ~static_cast<uint32_t>(EPOLLOUT);
+    events_ &= ~static_cast<uint32_t>(kWriteEvent);
     update();
 }
 

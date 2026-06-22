@@ -103,6 +103,10 @@ void EventLoop::runInLoop(Functor cb) {
         queueInLoop(std::move(cb));
     }
 }
+// 将 functor 加入队列并在必要时唤醒 loop。
+// 若从 loop 线程自身调用则跳过 wakeup()：functor 会在当前迭代
+// 末尾的 doPendingFunctors() 中被取出执行，无需通过 eventfd 唤醒。
+// 若从其他线程调用，必须 wakeup() 以打断 epoll_wait。
 
 void EventLoop::queueInLoop(Functor cb) {
     {

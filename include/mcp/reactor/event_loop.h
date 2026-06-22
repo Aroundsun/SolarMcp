@@ -55,6 +55,9 @@ public:
     void runInLoop(Functor cb);
 
     /// 将 functor 排队在 loop 线程执行。
+    /// 若调用方非 loop 线程，则通过 eventfd 唤醒 loop。
+    /// 若调用方为 loop 线程本身，则跳过 wakeup —— functor 将在
+    /// 当前迭代末尾的 doPendingFunctors() 中执行，无需额外唤醒。
     void queueInLoop(Functor cb);
 
     /// 调用线程为 loop 所属线程时返回 true。

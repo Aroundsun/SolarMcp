@@ -65,13 +65,16 @@ nlohmann::json Response::toJson() const {
     } else {
         j["result"] = result;
     }
-
+    // JSON-RPC 2.0 规范：id 为 null 时必须显式输出 "id": null
     std::visit([&j](const auto& v) {
         using T = std::decay_t<decltype(v)>;
-        if constexpr (!std::is_same_v<T, std::nullptr_t>) {
+        if constexpr (std::is_same_v<T, std::nullptr_t>) {
+            j["id"] = nullptr;
+        } else {
             j["id"] = v;
         }
     }, id);
+
 
     return j;
 }
