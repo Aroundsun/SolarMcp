@@ -30,6 +30,16 @@ foreach(test_src ${TEST_SOURCES})
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
 
+# test_plugin 需加载真实 .so：导出符号 + 插件构建产物路径
+if(TARGET shell_plugin)
+    add_dependencies(test_plugin shell_plugin read_file_plugin)
+    target_compile_definitions(test_plugin PRIVATE
+        "SOLARMCP_PLUGIN_DIR=\"${CMAKE_BINARY_DIR}/plugins\"")
+    if(NOT MSVC)
+        target_link_options(test_plugin PRIVATE "-rdynamic")
+    endif()
+endif()
+
 # shell 工具在 plugins/ 目录，单独编译其源文件
 add_executable(test_shell_tool
     test_shell_tool.cpp
