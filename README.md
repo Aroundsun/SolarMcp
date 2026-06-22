@@ -130,8 +130,8 @@ SolarMcp/
 │   └── tool/         # 工具抽象与实现
 ├── src/              # 实现源码
 ├── plugins/          # 插件源码与动态库
+│   ├── example/      #   最小示例插件
 │   ├── shell/        #   shell 插件源码
-│   ├── filesystem/   #   read_file 插件源码
 │   └── lib/          #   运行时 .so（构建生成）
 ├── docs/             # 文档（插件热重载、系统设计等）
 ├── scripts/          # 构建与测试脚本

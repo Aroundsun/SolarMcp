@@ -32,7 +32,7 @@ endforeach()
 
 # test_plugin 需加载真实 .so：导出符号 + 插件构建产物路径
 if(TARGET shell_plugin)
-    add_dependencies(test_plugin shell_plugin read_file_plugin)
+    add_dependencies(test_plugin shell_plugin minimal_plugin)
     target_compile_definitions(test_plugin PRIVATE
         "SOLARMCP_PLUGIN_DIR=\"${CMAKE_BINARY_DIR}/plugins/lib\"")
     if(NOT MSVC)

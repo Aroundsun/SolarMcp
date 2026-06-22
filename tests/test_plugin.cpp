@@ -25,9 +25,12 @@ bool shellPluginAvailable() {
     return fs::exists(fs::path(pluginDir()) / "shell_plugin.so");
 }
 
+bool minimalPluginAvailable() {
+    return fs::exists(fs::path(pluginDir()) / "minimal_plugin.so");
+}
+
 bool allPluginsAvailable() {
-    return fs::exists(fs::path(pluginDir()) / "shell_plugin.so") &&
-           fs::exists(fs::path(pluginDir()) / "read_file_plugin.so");
+    return shellPluginAvailable() && minimalPluginAvailable();
 }
 
 struct PluginFixture {
@@ -117,6 +120,31 @@ TEST(PluginManagerTest, LoadShellPlugin) {
     fs::remove_all(dir);
 }
 
+TEST(PluginManagerTest, LoadMinimalPlugin) {
+    if (!minimalPluginAvailable()) {
+        GTEST_SKIP() << "minimal_plugin.so not found in " << pluginDir();
+    }
+
+    PluginFixture fx;
+    const std::string so = (fs::path(pluginDir()) / "minimal_plugin.so").string();
+
+    const fs::path dir =
+        fs::temp_directory_path() / "solarmcp_plugin_minimal_only";
+    fs::create_directories(dir);
+    fs::copy_file(so, dir / "minimal_plugin.so",
+                  fs::copy_options::overwrite_existing);
+
+    EXPECT_EQ(fx.pm.loadFromDirectory(dir.string(), fx.tm, ""), 1);
+    ASSERT_NE(fx.tm.getTool("plugin_demo"), nullptr);
+
+    mcp::Context ctx;
+    auto result = fx.tm.callTool("plugin_demo", {}, ctx);
+    ASSERT_FALSE(result.is_error);
+    EXPECT_EQ(result.content["message"], "hello from minimal plugin");
+
+    fs::remove_all(dir);
+}
+
 TEST(PluginManagerTest, LoadAllPluginsFromDirectory) {
     if (!allPluginsAvailable()) {
         GTEST_SKIP() << "plugin .so files not found in " << pluginDir();
@@ -128,10 +156,10 @@ TEST(PluginManagerTest, LoadAllPluginsFromDirectory) {
     EXPECT_EQ(fx.pm.loadedCount(), 2u);
     EXPECT_GE(fx.tm.size(), 2u);
     EXPECT_NE(fx.tm.getTool("shell"), nullptr);
-    EXPECT_NE(fx.tm.getTool("read_file"), nullptr);
+    EXPECT_NE(fx.tm.getTool("plugin_demo"), nullptr);
 }
 
-TEST(PluginManagerTest, ReadFilePluginSkippedWhenDuplicate) {
+TEST(PluginManagerTest, MinimalPluginAlongsideBuiltinReadFile) {
     if (!allPluginsAvailable()) {
         GTEST_SKIP() << "plugin .so files not found in " << pluginDir();
     }
@@ -140,11 +168,11 @@ TEST(PluginManagerTest, ReadFilePluginSkippedWhenDuplicate) {
     ASSERT_TRUE(fx.tm.registerTool(std::make_unique<mcp::ReadFileTool>()));
 
     int count = fx.pm.loadFromDirectory(pluginDir(), fx.tm, "");
-    EXPECT_EQ(count, 1);
-    EXPECT_EQ(fx.pm.loadedCount(), 1u);
+    EXPECT_EQ(count, 2);
     EXPECT_NE(fx.tm.getTool("shell"), nullptr);
+    EXPECT_NE(fx.tm.getTool("plugin_demo"), nullptr);
     EXPECT_NE(fx.tm.getTool("read_file"), nullptr);
-    EXPECT_EQ(fx.tm.size(), 2u);
+    EXPECT_EQ(fx.tm.size(), 3u);
 }
 
 TEST(PluginManagerTest, ShellDisabledViaConfig) {
