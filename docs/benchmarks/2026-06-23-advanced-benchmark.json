@@ -1,0 +1,300 @@
+{
+  "meta": {
+    "time": "2026-06-23 07:37:56 CST",
+    "host": "127.0.0.1",
+    "port": 8090,
+    "binary": "/home/xhy/workplace/SolarMcp/build-release/solarmcpd"
+  },
+  "mixed_load": [
+    {
+      "name": "混合负载 Multi-Reactor (io=4)",
+      "type": "mixed",
+      "shell": {
+        "connections": 50,
+        "requests_per_conn": 100,
+        "total_requests": 5000,
+        "command": "sleep 0.05",
+        "success": 5000,
+        "errors": 0,
+        "qps": 51.4,
+        "latency_ms": {
+          "min": 177.14,
+          "p50": 949.56,
+          "p90": 1105.52,
+          "p99": 1348.76,
+          "max": 1507.14,
+          "mean": 968.37
+        }
+      },
+      "tools_list": {
+        "connections": 10,
+        "requests_per_conn": 500,
+        "total_requests": 5000,
+        "success": 5000,
+        "errors": 0,
+        "qps": 51.4,
+        "latency_ms": {
+          "min": 0.14,
+          "p50": 1.72,
+          "p90": 4.55,
+          "p99": 9.06,
+          "max": 15.59,
+          "mean": 2.23
+        }
+      },
+      "elapsed_sec": 97.327,
+      "reactor_mode": "multi",
+      "io_threads": 4
+    },
+    {
+      "name": "混合负载 Single-Reactor",
+      "type": "mixed",
+      "shell": {
+        "connections": 50,
+        "requests_per_conn": 100,
+        "total_requests": 5000,
+        "command": "sleep 0.05",
+        "success": 5000,
+        "errors": 0,
+        "qps": 51.0,
+        "latency_ms": {
+          "min": 72.19,
+          "p50": 951.25,
+          "p90": 1135.81,
+          "p99": 1304.36,
+          "max": 1435.56,
+          "mean": 974.73
+        }
+      },
+      "tools_list": {
+        "connections": 10,
+        "requests_per_conn": 500,
+        "total_requests": 5000,
+        "success": 5000,
+        "errors": 0,
+        "qps": 51.0,
+        "latency_ms": {
+          "min": 0.15,
+          "p50": 1.73,
+          "p90": 3.53,
+          "p99": 6.98,
+          "max": 11.84,
+          "mean": 2.0
+        }
+      },
+      "elapsed_sec": 98.017,
+      "reactor_mode": "single",
+      "io_threads": 0
+    }
+  ],
+  "fixed_5000": [
+    {
+      "name": "F1. tools/list (50×100)",
+      "method": "tools/list",
+      "params": {},
+      "connections": 50,
+      "requests_per_conn": 100,
+      "total_requests": 5000,
+      "success": 5000,
+      "errors": 0,
+      "elapsed_sec": 1.171,
+      "qps": 4271.4,
+      "latency_ms": {
+        "min": 0.16,
+        "p50": 5.66,
+        "p90": 20.99,
+        "p99": 43.57,
+        "max": 70.29,
+        "mean": 8.97
+      },
+      "total_requests_fixed": 5000
+    },
+    {
+      "name": "F2. tools/list (10×500)",
+      "method": "tools/list",
+      "params": {},
+      "connections": 10,
+      "requests_per_conn": 500,
+      "total_requests": 5000,
+      "success": 5000,
+      "errors": 0,
+      "elapsed_sec": 1.125,
+      "qps": 4446.0,
+      "latency_ms": {
+        "min": 0.14,
+        "p50": 1.67,
+        "p90": 4.52,
+        "p99": 8.42,
+        "max": 14.75,
+        "mean": 2.16
+      },
+      "total_requests_fixed": 5000
+    },
+    {
+      "name": "F3. read_file (50×100)",
+      "method": "tools/call",
+      "params": {
+        "name": "read_file",
+        "arguments": {
+          "path": "/tmp/test.txt"
+        }
+      },
+      "connections": 50,
+      "requests_per_conn": 100,
+      "total_requests": 5000,
+      "success": 5000,
+      "errors": 0,
+      "elapsed_sec": 1.191,
+      "qps": 4198.2,
+      "latency_ms": {
+        "min": 0.29,
+        "p50": 6.48,
+        "p90": 19.54,
+        "p99": 37.9,
+        "max": 64.45,
+        "mean": 8.88
+      },
+      "total_requests_fixed": 5000
+    },
+    {
+      "name": "F4. plugin_demo (50×100)",
+      "method": "tools/call",
+      "params": {
+        "name": "plugin_demo",
+        "arguments": {}
+      },
+      "connections": 50,
+      "requests_per_conn": 100,
+      "total_requests": 5000,
+      "success": 5000,
+      "errors": 0,
+      "elapsed_sec": 1.153,
+      "qps": 4337.8,
+      "latency_ms": {
+        "min": 0.23,
+        "p50": 5.93,
+        "p90": 19.41,
+        "p99": 36.87,
+        "max": 73.96,
+        "mean": 8.53
+      },
+      "total_requests_fixed": 5000
+    },
+    {
+      "name": "F5. shell echo (10×500)",
+      "method": "tools/call",
+      "params": {
+        "name": "shell",
+        "arguments": {
+          "command": "echo ok"
+        }
+      },
+      "connections": 10,
+      "requests_per_conn": 500,
+      "total_requests": 5000,
+      "success": 5000,
+      "errors": 0,
+      "elapsed_sec": 37.38,
+      "qps": 133.8,
+      "latency_ms": {
+        "min": 4.65,
+        "p50": 47.68,
+        "p90": 147.98,
+        "p99": 218.1,
+        "max": 295.42,
+        "mean": 73.74
+      },
+      "total_requests_fixed": 5000
+    }
+  ],
+  "io_sweep": [
+    {
+      "name": "Sweep io=1 tools/list 5000",
+      "method": "tools/list",
+      "params": {},
+      "connections": 50,
+      "requests_per_conn": 100,
+      "total_requests": 5000,
+      "success": 5000,
+      "errors": 0,
+      "elapsed_sec": 1.086,
+      "qps": 4606.1,
+      "latency_ms": {
+        "min": 0.12,
+        "p50": 5.43,
+        "p90": 19.5,
+        "p99": 39.79,
+        "max": 90.79,
+        "mean": 8.27
+      },
+      "io_threads": 1,
+      "reactor_mode": "multi"
+    },
+    {
+      "name": "Sweep io=2 tools/list 5000",
+      "method": "tools/list",
+      "params": {},
+      "connections": 50,
+      "requests_per_conn": 100,
+      "total_requests": 5000,
+      "success": 5000,
+      "errors": 0,
+      "elapsed_sec": 1.188,
+      "qps": 4210.4,
+      "latency_ms": {
+        "min": 0.16,
+        "p50": 5.76,
+        "p90": 19.79,
+        "p99": 38.69,
+        "max": 91.66,
+        "mean": 8.49
+      },
+      "io_threads": 2,
+      "reactor_mode": "multi"
+    },
+    {
+      "name": "Sweep io=4 tools/list 5000",
+      "method": "tools/list",
+      "params": {},
+      "connections": 50,
+      "requests_per_conn": 100,
+      "total_requests": 5000,
+      "success": 5000,
+      "errors": 0,
+      "elapsed_sec": 1.157,
+      "qps": 4322.5,
+      "latency_ms": {
+        "min": 0.16,
+        "p50": 5.54,
+        "p90": 20.25,
+        "p99": 40.92,
+        "max": 73.9,
+        "mean": 8.5
+      },
+      "io_threads": 4,
+      "reactor_mode": "multi"
+    },
+    {
+      "name": "Sweep io=8 tools/list 5000",
+      "method": "tools/list",
+      "params": {},
+      "connections": 50,
+      "requests_per_conn": 100,
+      "total_requests": 5000,
+      "success": 5000,
+      "errors": 0,
+      "elapsed_sec": 1.184,
+      "qps": 4223.8,
+      "latency_ms": {
+        "min": 0.2,
+        "p50": 5.73,
+        "p90": 20.62,
+        "p99": 43.77,
+        "max": 88.43,
+        "mean": 8.89
+      },
+      "io_threads": 8,
+      "reactor_mode": "multi"
+    }
+  ]
+}

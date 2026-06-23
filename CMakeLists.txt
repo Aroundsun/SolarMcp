@@ -40,6 +40,8 @@ set(MCP_SOURCES
     src/network/inet_address.cpp
     # Reactor
     src/reactor/event_loop.cpp
+    src/reactor/event_loop_thread.cpp
+    src/reactor/event_loop_thread_pool.cpp
     src/reactor/channel.cpp
     src/reactor/poller.cpp
     src/reactor/epoll_poller.cpp

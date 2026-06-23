@@ -140,12 +140,14 @@ void EventLoop::doPendingFunctors() {
 
 void EventLoop::wakeup() {
     uint64_t one = 1;
-    ::write(wakeup_fd_, &one, sizeof(one));
+    ssize_t n = ::write(wakeup_fd_, &one, sizeof(one));
+    (void)n;
 }
 
 void EventLoop::handleWakeup() {
     uint64_t one;
-    ::read(wakeup_fd_, &one, sizeof(one));
+    ssize_t n = ::read(wakeup_fd_, &one, sizeof(one));
+    (void)n;
 }
 
 } // namespace mcp

@@ -2,7 +2,9 @@
 #include "mcp/server/tcp_connection.h"
 #include "mcp/server/dispatcher.h"
 #include "mcp/reactor/event_loop.h"
+#include "mcp/reactor/event_loop_thread_pool.h"
 #include "mcp/reactor/channel.h"
+#include "mcp/thread/thread_pool.h"
 #include "mcp/network/socket.h"
 #include "mcp/network/inet_address.h"
 #include "mcp/protocol/json_rpc_codec.h"
@@ -13,11 +15,20 @@
 
 #include <cerrno>
 #include <cstring>
+#include <mutex>
 #include <sstream>
 
 namespace mcp {
 
 int TcpServer::next_conn_id_ = 0;
+
+namespace {
+
+bool isAsyncMethod(const std::string& method) {
+    return method == "tools/call" || method == "plugins/reload";
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // 构造
@@ -35,7 +46,6 @@ TcpServer::TcpServer(EventLoop* loop, const InetAddress& listen_addr)
 
     acceptor_channel_ = std::make_unique<Channel>(loop, acceptor_->fd());
     acceptor_channel_->setReadCallback([this] {
-        // ET 模式：循环 accept 直到 EAGAIN，排空所有待处理连接
         while (true) {
             InetAddress peer_addr;
             int conn_fd = acceptor_->accept(&peer_addr);
@@ -45,7 +55,6 @@ TcpServer::TcpServer(EventLoop* loop, const InetAddress& listen_addr)
                 if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
                     break;
                 }
-                // 致命 accept 错误 — 记录并停止
                 LOG_ERROR("TcpServer: accept error: {}", std::strerror(errno));
                 break;
             }
@@ -75,17 +84,20 @@ void TcpServer::stop() {
     acceptor_channel_->disableAll();
     acceptor_channel_->remove();
 
-    // 关闭所有现有连接
-    std::vector<std::string> names;
-    names.reserve(connections_.size());
-    for (auto& kv : connections_) {
-        names.push_back(kv.first);
-    }
-    for (const auto& name : names) {
-        auto it = connections_.find(name);
-        if (it != connections_.end()) {
-            it->second->shutdown();
+    std::vector<std::shared_ptr<TcpConnection>> conns;
+    {
+        std::lock_guard lock(connections_mutex_);
+        conns.reserve(connections_.size());
+        for (auto& kv : connections_) {
+            conns.push_back(kv.second);
         }
+    }
+
+    for (auto& conn : conns) {
+        EventLoop* io_loop = conn->loop();
+        io_loop->runInLoop([conn]() {
+            conn->shutdown();
+        });
     }
 
     started_ = false;
@@ -96,7 +108,22 @@ void TcpServer::stop() {
 // ---------------------------------------------------------------------------
 
 void TcpServer::onNewConnection(int sock_fd, const InetAddress& peer_addr) {
-    // 生成唯一连接名
+    EventLoop* io_loop = worker_pool_ ? worker_pool_->getNextLoop() : loop_;
+
+    auto setup = [this, sock_fd, peer_addr, io_loop]() {
+        createConnectionOnLoop(io_loop, sock_fd, peer_addr);
+    };
+
+    if (io_loop == loop_ && loop_->isInLoopThread()) {
+        setup();
+    } else {
+        io_loop->runInLoop(std::move(setup));
+    }
+}
+
+void TcpServer::createConnectionOnLoop(EventLoop* io_loop,
+                                       int sock_fd,
+                                       const InetAddress& peer_addr) {
     int conn_id = next_conn_id_++;
     std::ostringstream oss;
     oss << listen_addr_.toIpPort() << "#" << conn_id;
@@ -104,37 +131,36 @@ void TcpServer::onNewConnection(int sock_fd, const InetAddress& peer_addr) {
 
     InetAddress local_addr(0, "0.0.0.0");
 
-    auto conn = std::make_unique<TcpConnection>(
-        loop_, conn_name, sock_fd, local_addr, peer_addr);
+    auto conn = std::make_shared<TcpConnection>(
+        io_loop, conn_name, sock_fd, local_addr, peer_addr);
 
-    // 设置 JSON-RPC 编解码器以进行 Content-Length 分帧
     conn->setCodec(std::make_unique<JsonRpcCodec>());
 
-    // 统一经 onMessage 入口，确保认证逻辑对用户回调同样生效
-    conn->setMessageCallback([this](TcpConnection* c, const Message& msg) {
+    conn->setMessageCallback([this](const std::shared_ptr<TcpConnection>& c,
+                                    const Message& msg) {
         onMessage(c, msg);
     });
 
-    conn->setCloseCallback([this](TcpConnection* c) {
+    conn->setCloseCallback([this](const std::shared_ptr<TcpConnection>& c) {
         if (close_callback_) {
-            close_callback_(c);
+            close_callback_(c.get());
         }
         removeConnection(c);
     });
 
-    connections_[conn_name] = std::move(conn);
+    {
+        std::lock_guard lock(connections_mutex_);
+        connections_[conn_name] = conn;
+    }
 
-    LOG_INFO("TcpServer: new connection {} from {}",
-             conn_name, peer_addr.toIpPort());
+    LOG_INFO("TcpServer: new connection {} from {} on loop {}",
+             conn_name, peer_addr.toIpPort(),
+             io_loop == loop_ ? "main" : "worker");
 
-    // 建立连接（启用读）
-    auto* conn_ptr = connections_[conn_name].get();
-    loop_->runInLoop([conn_ptr] {
-        conn_ptr->connectEstablished();
-    });
+    conn->connectEstablished();
 
     if (connection_callback_) {
-        connection_callback_(conn_ptr);
+        connection_callback_(conn.get());
     }
 }
 
@@ -142,23 +168,21 @@ void TcpServer::onNewConnection(int sock_fd, const InetAddress& peer_addr) {
 // removeConnection
 // ---------------------------------------------------------------------------
 
-void TcpServer::removeConnection(TcpConnection* conn) {
+void TcpServer::removeConnection(const std::shared_ptr<TcpConnection>& conn) {
     std::string name = conn->name();
-    // 延迟到当前事件处理结束后再销毁，避免在 Channel::handleEvent() 回调栈内 use-after-free
-    loop_->queueInLoop([this, name = std::move(name)]() {
-        auto it = connections_.find(name);
-        if (it != connections_.end()) {
-            connections_.erase(it);
-        }
+    EventLoop* io_loop = conn->loop();
+    io_loop->queueInLoop([this, name = std::move(name)]() {
+        std::lock_guard lock(connections_mutex_);
+        connections_.erase(name);
     });
 }
 
 // ---------------------------------------------------------------------------
-// onMessage — 认证 → 用户回调或默认 Dispatcher 分发
+// onMessage
 // ---------------------------------------------------------------------------
 
-void TcpServer::onMessage(TcpConnection* conn, const Message& message) {
-    // 仅处理 Request（服务器端不处理 Response）
+void TcpServer::onMessage(const std::shared_ptr<TcpConnection>& conn,
+                          const Message& message) {
     if (!isRequest(message)) {
         return;
     }
@@ -168,13 +192,11 @@ void TcpServer::onMessage(TcpConnection* conn, const Message& message) {
     LOG_DEBUG("TcpServer::onMessage: method={}, id={}",
               request.method, request.idString());
 
-    // ---- 内置 authenticate 方法（认证前即可调用） ----
     if (request.method == "authenticate") {
         handleAuthenticate(conn, request);
         return;
     }
 
-    // ---- 认证检查（所有其他方法，含用户自定义回调） ----
     if (auth_enabled_ && !conn->isAuthenticated()) {
         auto response = Response::makeError(
             request.id,
@@ -185,7 +207,7 @@ void TcpServer::onMessage(TcpConnection* conn, const Message& message) {
     }
 
     if (message_callback_) {
-        message_callback_(conn, message);
+        message_callback_(conn.get(), message);
         return;
     }
 
@@ -193,33 +215,59 @@ void TcpServer::onMessage(TcpConnection* conn, const Message& message) {
 }
 
 // ---------------------------------------------------------------------------
-// dispatchMessage — 默认 Dispatcher 路由
+// dispatchMessage
 // ---------------------------------------------------------------------------
 
-void TcpServer::dispatchMessage(TcpConnection* conn, const Request& request) {
-    Response response;
+void TcpServer::dispatchMessage(const std::shared_ptr<TcpConnection>& conn,
+                                const Request& request) {
+    if (isAsyncMethod(request.method) && thread_pool_) {
+        if (thread_pool_->queueSize() >= max_queue_size_) {
+            auto response = Response::makeError(
+                request.id,
+                ErrorCodes::kServerBusy,
+                "Server busy — task queue full");
+            conn->sendInLoop(Message(std::move(response)));
+            return;
+        }
 
+        std::weak_ptr<TcpConnection> weak_conn = conn;
+        thread_pool_->enqueue([this, weak_conn, request]() {
+            Response response;
+            if (dispatcher_ && dispatcher_->hasMethod(request.method)) {
+                response = dispatcher_->dispatch(request);
+            } else {
+                response = Response::makeError(
+                    request.id,
+                    ErrorCodes::kMethodNotFound,
+                    "Method not found: " + request.method);
+            }
+
+            if (auto locked = weak_conn.lock()) {
+                locked->sendInLoop(Message(std::move(response)));
+            }
+        });
+        return;
+    }
+
+    Response response;
     if (dispatcher_ && dispatcher_->hasMethod(request.method)) {
-        // 通过已注册处理函数分发
         response = dispatcher_->dispatch(request);
     } else {
-        // 方法未找到
         response = Response::makeError(
             request.id,
             ErrorCodes::kMethodNotFound,
             "Method not found: " + request.method);
     }
 
-    // 将响应发回客户端
     conn->send(Message(std::move(response)));
 }
 
 // ---------------------------------------------------------------------------
-// handleAuthenticate — 连接级 Token 认证
+// handleAuthenticate
 // ---------------------------------------------------------------------------
 
-void TcpServer::handleAuthenticate(TcpConnection* conn, const Request& request) {
-    // 认证未启用：无需 token，直接告知客户端
+void TcpServer::handleAuthenticate(const std::shared_ptr<TcpConnection>& conn,
+                                   const Request& request) {
     if (!auth_enabled_) {
         auto resp = Response::success(
             request.id,
@@ -228,7 +276,6 @@ void TcpServer::handleAuthenticate(TcpConnection* conn, const Request& request) 
         return;
     }
 
-    // 已认证则直接返回成功
     if (conn->isAuthenticated()) {
         auto resp = Response::success(
             request.id,
@@ -237,7 +284,6 @@ void TcpServer::handleAuthenticate(TcpConnection* conn, const Request& request) 
         return;
     }
 
-    // 验证 token 参数
     if (!request.params.contains("token") || !request.params["token"].is_string()) {
         auto resp = Response::makeError(
             request.id,

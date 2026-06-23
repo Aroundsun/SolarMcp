@@ -277,6 +277,7 @@ std::vector<ScannedPlugin> scanPluginEntries(const std::string& plugin_root) {
 } // namespace
 
 PluginManager::~PluginManager() {
+    std::unique_lock lock(mutex_);
     if (!plugins_.empty()) {
         LOG_WARN("PluginManager destroyed with {} plugin(s) still loaded — "
                  "call unloadAll(tool_manager) first",
@@ -285,8 +286,14 @@ PluginManager::~PluginManager() {
     }
 }
 
+size_t PluginManager::loadedCount() const {
+    std::shared_lock lock(mutex_);
+    return plugins_.size();
+}
+
 int PluginManager::loadFromDirectory(const std::string& plugin_dir,
                                       ToolManager& tool_manager) {
+    std::unique_lock lock(mutex_);
     if (!fs::is_directory(fs::path(plugin_dir))) {
         LOG_WARN("Cannot open plugin directory '{}': {}",
                  plugin_dir, std::strerror(errno));
@@ -313,6 +320,7 @@ int PluginManager::loadFromDirectory(const std::string& plugin_dir,
 PluginReloadResult PluginManager::reloadFromDirectory(
     const std::string& plugin_dir,
     ToolManager& tool_manager) {
+    std::unique_lock lock(mutex_);
     PluginReloadResult result;
     result.unloaded = static_cast<int>(plugins_.size());
 
@@ -333,7 +341,7 @@ PluginReloadResult PluginManager::reloadFromDirectory(
 
     LOG_INFO("Reloading plugins from '{}' ({} validated)", plugin_dir,
              entries.size());
-    unloadAll(tool_manager);
+    unloadAllUnlocked(tool_manager);
 
     for (const auto& entry : entries) {
         if (loadPlugin(entry.so_path, tool_manager, entry.config_path)) {
@@ -350,6 +358,7 @@ PluginReloadResult PluginManager::reloadFromDirectory(
 
 bool PluginManager::reloadPlugin(const std::string& so_path,
                                   ToolManager& tool_manager) {
+    std::unique_lock lock(mutex_);
     const std::string config_path = resolveConfigForSoPath(so_path);
 
     ToolManager trial_tm;
@@ -398,11 +407,16 @@ void PluginManager::unloadPlugin(LoadedPlugin& plugin,
              plugin.name, plugin.version, plugin.path);
 }
 
-void PluginManager::unloadAll(ToolManager& tool_manager) {
+void PluginManager::unloadAllUnlocked(ToolManager& tool_manager) {
     for (auto& plugin : plugins_) {
         unloadPlugin(plugin, tool_manager);
     }
     plugins_.clear();
+}
+
+void PluginManager::unloadAll(ToolManager& tool_manager) {
+    std::unique_lock lock(mutex_);
+    unloadAllUnlocked(tool_manager);
 }
 
 void PluginManager::unloadHandlesOnly() {

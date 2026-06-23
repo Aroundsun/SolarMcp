@@ -72,6 +72,7 @@ namespace ErrorCodes {
     constexpr int kTimeout        = -32002;  // 执行超时
     constexpr int kAuthRequired   = -32003;  // 需要认证但未提供凭证
     constexpr int kAuthFailed     = -32004;  // 认证凭证无效
+    constexpr int kServerBusy     = -32005;  // 线程池队列已满
 } // namespace ErrorCodes
 
 } // namespace mcp

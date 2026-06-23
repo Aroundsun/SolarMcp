@@ -18,22 +18,17 @@ class Codec;
 
 /// 表示与客户端的单条 TCP 连接。
 ///
-/// 拥有 socket fd、输入 Buffer、输出 Buffer、用于消息分帧的 Codec，
-/// 以及向 EventLoop 注册的 Channel。
-///
-/// 从 socket 读入输入缓冲区，用 Codec 提取完整 JSON-RPC 消息，
-/// 并通过回调分发。
-///
-/// 线程安全：所有方法必须在所属 EventLoop 线程调用。
+/// 拥有 socket fd、输入/输出 Buffer、Codec 及 Channel。
+/// 所有 I/O 操作须在所属 EventLoop 线程执行；跨线程发送请用 sendInLoop()。
 class TcpConnection : public NonCopyable,
                       public std::enable_shared_from_this<TcpConnection> {
 public:
     using MessageCallback = std::function<void(
-        TcpConnection* conn, const Message& message)>;
+        const std::shared_ptr<TcpConnection>& conn, const Message& message)>;
 
-    using CloseCallback = std::function<void(TcpConnection* conn)>;
+    using CloseCallback = std::function<void(
+        const std::shared_ptr<TcpConnection>& conn)>;
 
-    /// 连接生命周期状态。
     enum class State {
         kConnecting,
         kConnected,
@@ -48,37 +43,23 @@ public:
                   const InetAddress& peer_addr);
     ~TcpConnection();
 
-    /// 开始监控 I/O 事件，必须在 loop 线程调用。
     void connectEstablished();
-
-    /// 发起优雅关闭（半关闭 + 禁用 channel）。
     void shutdown();
 
-    /// 通过输出缓冲区发送 Message（由 codec 编码）。
     void send(const Message& message);
-
-    /// 发送原始字符串（已编码）。
     void send(const std::string& data);
-
-    /// 发送原始字节。
     void send(const char* data, size_t len);
 
-    // ---- 编解码器 ----
+    /// 线程安全：在所属 EventLoop 线程发送 Message。
+    void sendInLoop(const Message& message);
 
-    /// 设置此连接的协议编解码器。
     void setCodec(std::unique_ptr<Codec> codec);
 
-    // ---- 认证 ----
-
-    /// 标记此连接已通过认证。
     void setAuthenticated(bool authenticated) {
         authenticated_ = authenticated;
     }
 
-    /// 此连接是否已通过认证？
     bool isAuthenticated() const noexcept { return authenticated_; }
-
-    // ---- 回调设置 ----
 
     void setMessageCallback(MessageCallback cb) {
         message_callback_ = std::move(cb);
@@ -88,28 +69,16 @@ public:
         close_callback_ = std::move(cb);
     }
 
-    // ---- 访问器 ----
-
     const std::string& name() const noexcept { return name_; }
     EventLoop* loop() const noexcept { return loop_; }
     State state() const noexcept { return state_; }
     const InetAddress& peerAddress() const noexcept { return peer_addr_; }
 
 private:
-    /// Channel 在有数据可读时调用。
     void handleRead();
-
-    /// Channel 在 socket 可写时调用。
     void handleWrite();
-
-    /// Channel 在错误或挂断时调用。
     void handleClose();
-
-    /// Channel 在 epoll 错误时调用。
     void handleError();
-
-    /// 处理输入缓冲区以查找完整消息。
-    /// 使用 Codec 进行基于 Content-Length 的分帧。
     void processInput();
 
     EventLoop* loop_;
@@ -130,7 +99,7 @@ private:
     MessageCallback message_callback_;
     CloseCallback close_callback_;
 
-    bool authenticated_{false};  // 连接级认证状态
+    bool authenticated_{false};
 };
 
 } // namespace mcp

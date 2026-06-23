@@ -1,5 +1,6 @@
 #pragma once
 
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -36,7 +37,7 @@ public:
 
     void unloadAll(ToolManager& tool_manager);
 
-    size_t loadedCount() const noexcept { return plugins_.size(); }
+    size_t loadedCount() const;
 
 private:
     struct LoadedPlugin {
@@ -57,8 +58,10 @@ private:
                         const std::string& plugin_config_path);
 
     void unloadPlugin(LoadedPlugin& plugin, ToolManager& tool_manager);
+    void unloadAllUnlocked(ToolManager& tool_manager);
     void unloadHandlesOnly();
 
+    mutable std::shared_mutex mutex_;
     std::vector<LoadedPlugin> plugins_;
 };
 

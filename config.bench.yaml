@@ -18,7 +18,7 @@ thread_pool:
 
 reactor:
   mode: "multi"               # "single" | "multi"
-  io_threads: 4               # Worker Reactor 数量（multi 模式）
+  io_threads: 8               # Worker Reactor 数量（multi 模式）
 
 plugins:
   directory: "./plugins/"       # 扫描子目录，每目录一个 .so + 可选 yaml

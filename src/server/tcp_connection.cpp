@@ -86,27 +86,33 @@ void TcpConnection::send(const char* data, size_t len) {
         return;
     }
 
-    // 输出缓冲区为空时先尝试直接写
     if (output_buffer_.readableBytes() == 0) {
         ssize_t n = ::write(channel_->fd(), data, len);
         if (n >= 0) {
             if (static_cast<size_t>(n) == len) {
-                // 全部写入完成
                 return;
             }
-            // 部分写入 — 缓冲剩余数据
             data += n;
             len -= n;
         } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-            // 致命写错误
             handleClose();
             return;
         }
     }
 
-    // 缓冲剩余数据并启用写监控
     output_buffer_.append(data, len);
     channel_->enableWriting();
+}
+
+void TcpConnection::sendInLoop(const Message& message) {
+    if (loop_->isInLoopThread()) {
+        send(message);
+        return;
+    }
+
+    loop_->queueInLoop([self = shared_from_this(), message]() {
+        self->send(message);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +201,7 @@ void TcpConnection::handleClose() {
     LOG_INFO("TcpConnection {} closed", name_);
 
     if (close_callback_) {
-        close_callback_(this);
+        close_callback_(shared_from_this());
     }
 }
 
@@ -226,7 +232,7 @@ void TcpConnection::processInput() {
         }
 
         if (message_callback_) {
-            message_callback_(this, maybe_msg.value());
+            message_callback_(shared_from_this(), maybe_msg.value());
         }
     }
 }

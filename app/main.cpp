@@ -8,6 +8,7 @@
 #include "mcp/server/dispatcher.h"
 #include "mcp/server/tcp_server.h"
 #include "mcp/reactor/event_loop.h"
+#include "mcp/reactor/event_loop_thread_pool.h"
 #include "mcp/network/inet_address.h"
 
 #include <atomic>
@@ -145,9 +146,22 @@ int main(int argc, char* argv[]) {
 
     // --- 4. 创建线程池 ---
     int worker_threads = config.getInt("thread_pool.worker_threads", 4);
+    size_t max_queue_size = static_cast<size_t>(
+        config.getInt("thread_pool.max_queue_size", 10000));
     auto thread_pool = std::make_shared<mcp::ThreadPool>(
         static_cast<size_t>(worker_threads));
-    LOG_INFO("Thread pool: {} workers", worker_threads);
+    LOG_INFO("Thread pool: {} workers, max queue {}", worker_threads,
+             max_queue_size);
+
+    // --- 5. Worker Reactor 池（Main + Worker） ---
+    std::string reactor_mode = config.getString("reactor.mode", "single");
+    int io_threads = config.getInt("reactor.io_threads", 0);
+    if (reactor_mode == "multi" && io_threads <= 0) {
+        io_threads = static_cast<int>(std::thread::hardware_concurrency());
+        if (io_threads <= 0) {
+            io_threads = 4;
+        }
+    }
 
     // PluginManager 须先于 ToolManager 声明：析构时先销毁 Tool，再 dlclose。
     mcp::PluginManager plugin_manager;
@@ -198,17 +212,28 @@ int main(int argc, char* argv[]) {
     LOG_INFO("Dispatcher: {} method(s) registered", dispatcher.methodCount());
 
     // --- 9. 创建事件循环与 TCP 服务器 ---
-    mcp::EventLoop event_loop;
+    mcp::EventLoop base_loop;
+    mcp::EventLoopThreadPool worker_pool(&base_loop);
+
+    if (reactor_mode == "multi" && io_threads > 0) {
+        worker_pool.setThreadNum(io_threads);
+        worker_pool.start();
+        LOG_INFO("Reactor mode: multi (Main + {} Worker IO threads)", io_threads);
+    } else {
+        LOG_INFO("Reactor mode: single (Main Reactor only)");
+    }
 
     std::string host = config.getString("server.host", "0.0.0.0");
     int port = config.getInt("server.port", 8090);
 
     mcp::InetAddress listen_addr(static_cast<uint16_t>(port), host);
-    mcp::TcpServer server(&event_loop, listen_addr);
+    mcp::TcpServer server(&base_loop, listen_addr);
 
+    server.setEventLoopThreadPool(&worker_pool);
     server.setDispatcher(&dispatcher);
     server.setToolManager(&tool_manager);
     server.setThreadPool(thread_pool);
+    server.setMaxQueueSize(max_queue_size);
 
     // ---- 认证配置 ----
     if (config.getBool("auth.enabled", false)) {
@@ -235,19 +260,20 @@ int main(int argc, char* argv[]) {
     // 以后台「看门狗」模式运行 loop：
     // EventLoop 在当前线程运行，信号监控线程
     // 定期检查 g_running 并调用 quit()。
-    std::thread signal_monitor([&event_loop]() {
+    std::thread signal_monitor([&base_loop]() {
         while (g_running.load(std::memory_order_acquire)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
-        event_loop.quit();
+        base_loop.quit();
     });
 
-    event_loop.loop();
+    base_loop.loop();
     signal_monitor.join();
 
     // --- 12. 优雅关闭 ---
     LOG_INFO("Shutting down...");
     server.stop();
+    worker_pool.stop();
     plugin_manager.unloadAll(tool_manager);
     thread_pool->shutdown();
     mcp::Logger::getInstance().shutdown();

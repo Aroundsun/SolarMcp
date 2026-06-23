@@ -1,5 +1,6 @@
 #include "mcp/reactor/event_loop.h"
-#include "mcp/reactor/channel.h"
+#include "mcp/reactor/event_loop_thread_pool.h"
+#include "mcp/reactor/event_loop_thread.h"
 #include "mcp/reactor/epoll_poller.h"
 #include "mcp/network/socket.h"
 #include "mcp/network/inet_address.h"
@@ -43,6 +44,26 @@ TEST(ReactorTest, RunInLoop) {
 
     loop_thread.join();
     EXPECT_EQ(counter.load(), 3);
+}
+
+TEST(ReactorTest, EventLoopThreadPoolRoundRobin) {
+    mcp::EventLoop base_loop;
+    mcp::EventLoopThreadPool pool(&base_loop);
+    pool.setThreadNum(2);
+    pool.start();
+
+    EXPECT_EQ(pool.size(), 2u);
+
+    mcp::EventLoop* a = pool.getNextLoop();
+    mcp::EventLoop* b = pool.getNextLoop();
+    mcp::EventLoop* c = pool.getNextLoop();
+
+    EXPECT_NE(a, &base_loop);
+    EXPECT_NE(b, &base_loop);
+    EXPECT_NE(a, b);
+    EXPECT_EQ(a, c);
+
+    pool.stop();
 }
 
 TEST(ReactorTest, EchoServer) {

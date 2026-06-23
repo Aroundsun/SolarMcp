@@ -1,29 +1,26 @@
 #include "mcp/tool/tool_manager.h"
 #include "mcp/common/types.h"
 
-namespace mcp {
+#include <mutex>
 
-// ---------------------------------------------------------------------------
-// registerTool
-// ---------------------------------------------------------------------------
+namespace mcp {
 
 bool ToolManager::registerTool(std::unique_ptr<Tool> tool) {
     if (!tool) {
         return false;
     }
     const std::string& name = tool->name();
+
+    std::unique_lock lock(mutex_);
     if (tools_.find(name) != tools_.end()) {
-        return false; // 已注册
+        return false;
     }
     tools_[name] = std::move(tool);
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// getTool
-// ---------------------------------------------------------------------------
-
 Tool* ToolManager::getTool(const std::string& name) const {
+    std::shared_lock lock(mutex_);
     auto it = tools_.find(name);
     if (it != tools_.end()) {
         return it->second.get();
@@ -31,11 +28,8 @@ Tool* ToolManager::getTool(const std::string& name) const {
     return nullptr;
 }
 
-// ---------------------------------------------------------------------------
-// listTools
-// ---------------------------------------------------------------------------
-
 std::vector<ToolManager::ToolInfo> ToolManager::listTools() const {
+    std::shared_lock lock(mutex_);
     std::vector<ToolInfo> result;
     result.reserve(tools_.size());
     for (const auto& kv : tools_) {
@@ -48,14 +42,18 @@ std::vector<ToolManager::ToolInfo> ToolManager::listTools() const {
     return result;
 }
 
-// ---------------------------------------------------------------------------
-// callTool
-// ---------------------------------------------------------------------------
-
 Result ToolManager::callTool(const std::string& name,
                               const nlohmann::json& params,
                               Context& ctx) {
-    Tool* tool = getTool(name);
+    Tool* tool = nullptr;
+    {
+        std::shared_lock lock(mutex_);
+        auto it = tools_.find(name);
+        if (it != tools_.end()) {
+            tool = it->second.get();
+        }
+    }
+
     if (!tool) {
         return Result::err(ErrorCodes::kToolNotFound,
                            "Tool not found: " + name);
@@ -69,16 +67,24 @@ Result ToolManager::callTool(const std::string& name,
     }
 }
 
-// ---------------------------------------------------------------------------
-// clear
-// ---------------------------------------------------------------------------
-
 void ToolManager::clear() {
+    std::unique_lock lock(mutex_);
     tools_.clear();
 }
 
 bool ToolManager::unregisterTool(const std::string& name) {
+    std::unique_lock lock(mutex_);
     return tools_.erase(name) > 0;
+}
+
+size_t ToolManager::size() const {
+    std::shared_lock lock(mutex_);
+    return tools_.size();
+}
+
+bool ToolManager::empty() const {
+    std::shared_lock lock(mutex_);
+    return tools_.empty();
 }
 
 } // namespace mcp

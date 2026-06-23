@@ -1,0 +1,90 @@
+[
+  {
+    "name": "A. tools/list 基线",
+    "method": "tools/list",
+    "params": {},
+    "connections": 10,
+    "requests_per_conn": 200,
+    "total_requests": 2000,
+    "success": 2000,
+    "errors": 0,
+    "elapsed_sec": 0.443,
+    "qps": 4517.0,
+    "latency_ms": {
+      "min": 0.14,
+      "p50": 1.63,
+      "p90": 4.1,
+      "p99": 7.7,
+      "max": 11.32,
+      "mean": 2.05
+    }
+  },
+  {
+    "name": "B. tools/list 高并发",
+    "method": "tools/list",
+    "params": {},
+    "connections": 50,
+    "requests_per_conn": 100,
+    "total_requests": 5000,
+    "success": 5000,
+    "errors": 0,
+    "elapsed_sec": 1.226,
+    "qps": 4077.7,
+    "latency_ms": {
+      "min": 0.17,
+      "p50": 5.76,
+      "p90": 20.27,
+      "p99": 42.5,
+      "max": 72.24,
+      "mean": 8.68
+    }
+  },
+  {
+    "name": "C. read_file 轻业务",
+    "method": "tools/call",
+    "params": {
+      "name": "read_file",
+      "arguments": {
+        "path": "/tmp/test.txt"
+      }
+    },
+    "connections": 20,
+    "requests_per_conn": 50,
+    "total_requests": 1000,
+    "success": 1000,
+    "errors": 0,
+    "elapsed_sec": 0.257,
+    "qps": 3889.5,
+    "latency_ms": {
+      "min": 0.43,
+      "p50": 3.16,
+      "p90": 8.35,
+      "p99": 14.81,
+      "max": 26.45,
+      "mean": 4.08
+    }
+  },
+  {
+    "name": "D. plugin_demo 插件",
+    "method": "tools/call",
+    "params": {
+      "name": "plugin_demo",
+      "arguments": {}
+    },
+    "connections": 20,
+    "requests_per_conn": 50,
+    "total_requests": 1000,
+    "success": 1000,
+    "errors": 0,
+    "elapsed_sec": 0.242,
+    "qps": 4130.6,
+    "latency_ms": {
+      "min": 0.24,
+      "p50": 2.9,
+      "p90": 7.78,
+      "p99": 15.25,
+      "max": 33.44,
+      "mean": 3.89
+    }
+  }
+]

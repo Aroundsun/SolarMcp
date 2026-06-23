@@ -82,7 +82,7 @@ typedef int (*mcp_tool_execute_fn)(const char* params_json,
 - **目录重载**：`reloadFromDirectory` 对所有 `.so` 逐个 validate，**全部通过**才 `unloadAll` 并重新加载
 - validate 失败时**保留**当前已加载插件，不会半更新
 
-详见 [插件热重载.md](./插件热重载.md)。架构背景见 [系统设计 §1.3.10](./系统设计.md#1310-插件系统)。
+详见 [插件热重载.md](./插件热重载.md)。架构背景见 [系统设计 §1.3.10](./系统设计.md#1310-插件系统)。安全见 [插件安全.md](./插件安全.md)。
 
 ## 相关文件
 
