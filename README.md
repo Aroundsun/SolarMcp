@@ -1,5 +1,7 @@
 # SolarMcp
 
+[![CI](https://github.com/Aroundsun/SolarMcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Aroundsun/SolarMcp/actions/workflows/ci.yml)
+
 从零实现的高性能 **C++20 MCP（Model Context Protocol）** 服务器框架。
 
 ## 特性

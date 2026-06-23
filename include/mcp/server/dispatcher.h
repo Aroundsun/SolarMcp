@@ -10,8 +10,6 @@
 namespace mcp {
 
 /// 使用 unordered_map 实现 O(1) 方法查找的分发器。
-///
-/// 严格基于 map 分发 — 无 if-else 链。
 /// 每个 MCP 方法注册一个接收 params 并返回 Response 的处理函数。
 class Dispatcher {
 public:
@@ -35,7 +33,7 @@ public:
     size_t methodCount() const noexcept { return handlers_.size(); }
 
 private:
-    std::unordered_map<std::string, Handler> handlers_;
+    std::unordered_map<std::string, Handler> handlers_; 
 };
 
 } // namespace mcp
